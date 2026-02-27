@@ -1170,7 +1170,7 @@ export default function UserPage() {
                                   classNames={{
                                     trigger: "min-h-10 h-10",
                                   }}
-                                  placeholder="请选择限速规则"
+                                  placeholder="不限速"
                                   selectedKeys={
                                     batchTunnelSelections.get(tunnel.id) !==
                                       null &&
@@ -1181,32 +1181,29 @@ export default function UserPage() {
                                             .get(tunnel.id)!
                                             .toString(),
                                         ]
-                                      : ["null"]
+                                      : []
                                   }
                                   size="sm"
                                   onClick={(e) => e.stopPropagation()}
                                   onSelectionChange={(keys) => {
-                                    const value = Array.from(keys)[0] as string;
+                                    const selectedKey = Array.from(keys)[0] as
+                                      | string
+                                      | undefined;
 
                                     updateTunnelSpeedLimit(
                                       tunnel.id,
-                                      value === "null" ? null : Number(value),
+                                      selectedKey ? Number(selectedKey) : null,
                                     );
                                   }}
                                 >
-                                  {[
-                                    <SelectItem key="null" textValue="不限速">
-                                      不限速
-                                    </SelectItem>,
-                                    ...tunnelSpeedLimits.map((sl) => (
-                                      <SelectItem
-                                        key={sl.id.toString()}
-                                        textValue={sl.name}
-                                      >
-                                        {sl.name}
-                                      </SelectItem>
-                                    )),
-                                  ]}
+                                  {tunnelSpeedLimits.map((sl) => (
+                                    <SelectItem
+                                      key={sl.id.toString()}
+                                      textValue={sl.name}
+                                    >
+                                      {sl.name}
+                                    </SelectItem>
+                                  ))}
                                 </Select>
                               </div>
                             )}
@@ -1429,38 +1426,35 @@ export default function UserPage() {
 
                   <Select
                     label="限速规则"
-                    placeholder="请选择限速规则"
+                    placeholder="不限速"
                     selectedKeys={
                       editTunnelSelectedSpeedId !== null
                         ? [editTunnelSelectedSpeedId.toString()]
-                        : ["null"]
+                        : []
                     }
                     onSelectionChange={(keys) => {
-                      const value = Array.from(keys)[0] as string;
+                      const selectedKey = Array.from(keys)[0] as
+                        | string
+                        | undefined;
 
                       setEditTunnelForm((prev) =>
                         prev
                           ? {
                               ...prev,
-                              speedId: value === "null" ? null : Number(value),
+                              speedId: selectedKey ? Number(selectedKey) : null,
                             }
                           : null,
                       );
                     }}
                   >
-                    {[
-                      <SelectItem key="null" textValue="不限速">
-                        不限速
-                      </SelectItem>,
-                      ...editAvailableSpeedLimits.map((speedLimit) => (
-                        <SelectItem
-                          key={speedLimit.id.toString()}
-                          textValue={speedLimit.name}
-                        >
-                          {speedLimit.name}
-                        </SelectItem>
-                      )),
-                    ]}
+                    {editAvailableSpeedLimits.map((speedLimit) => (
+                      <SelectItem
+                        key={speedLimit.id.toString()}
+                        textValue={speedLimit.name}
+                      >
+                        {speedLimit.name}
+                      </SelectItem>
+                    ))}
                   </Select>
 
                   <Select
