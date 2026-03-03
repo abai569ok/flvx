@@ -227,12 +227,36 @@ export default function UserPage() {
     );
   }, [speedLimits]);
 
+  const speedLimitIds = useMemo(() => {
+    return new Set(speedLimits.map((speedLimit) => speedLimit.id));
+  }, [speedLimits]);
+
   const normalizeSpeedId = (speedId?: number | null): number | null => {
     if (speedId === null || speedId === undefined) {
       return null;
     }
 
-    return noLimitSpeedLimitIds.has(speedId) ? null : speedId;
+    if (noLimitSpeedLimitIds.has(speedId)) {
+      return null;
+    }
+
+    if (speedLimits.length > 0 && !speedLimitIds.has(speedId)) {
+      return null;
+    }
+
+    return speedId;
+  };
+
+  const isMissingSpeedLimit = (speedId?: number | null): boolean => {
+    if (speedId === null || speedId === undefined) {
+      return false;
+    }
+
+    if (speedLimits.length === 0 || noLimitSpeedLimitIds.has(speedId)) {
+      return false;
+    }
+
+    return !speedLimitIds.has(speedId);
   };
 
   // 生命周期
@@ -446,11 +470,20 @@ export default function UserPage() {
 
     setAssignLoading(true);
     try {
+      let speedLimitAutoCleared = false;
       const tunnelsToAssign: TunnelAssignItem[] = Array.from(
         batchTunnelSelections.entries(),
       ).map(([tunnelId, speedId]) => ({
         tunnelId,
-        speedId: normalizeSpeedId(speedId),
+        speedId: (() => {
+          const cleared = normalizeSpeedId(speedId);
+
+          if (isMissingSpeedLimit(speedId)) {
+            speedLimitAutoCleared = true;
+          }
+
+          return cleared;
+        })(),
       }));
 
       const response = await batchAssignUserTunnel({
@@ -459,6 +492,12 @@ export default function UserPage() {
       });
 
       if (response.code === 0) {
+        if (speedLimitAutoCleared) {
+          toast("所选限速规则不存在，已自动清除为不限速", {
+            icon: "⚠️",
+            duration: 5000,
+          });
+        }
         toast.success(response.msg || "分配成功");
         setBatchTunnelSelections(new Map());
         loadUserTunnels(currentUser.id);
@@ -486,6 +525,7 @@ export default function UserPage() {
 
     setEditTunnelLoading(true);
     try {
+      const speedLimitAutoCleared = isMissingSpeedLimit(editTunnelForm.speedId);
       const response = await updateUserTunnel({
         id: editTunnelForm.id,
         flow: editTunnelForm.flow,
@@ -497,6 +537,12 @@ export default function UserPage() {
       });
 
       if (response.code === 0) {
+        if (speedLimitAutoCleared) {
+          toast("所选限速规则不存在，已自动清除为不限速", {
+            icon: "⚠️",
+            duration: 5000,
+          });
+        }
         toast.success("更新成功");
         onEditTunnelModalClose();
         if (currentUser) {

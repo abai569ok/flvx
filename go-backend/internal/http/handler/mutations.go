@@ -1057,7 +1057,8 @@ func (h *Handler) userTunnelUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	speedID := asAnyToInt64Ptr(req["speedId"])
-	if err := h.validateSpeedLimitReference(speedID); err != nil {
+	speedID, err := h.normalizeSpeedLimitReference(speedID)
+	if err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
@@ -1145,16 +1146,10 @@ func (h *Handler) forwardCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	speedID := asAnyToInt64Ptr(req["speedId"])
-	if speedID != nil {
-		exists, speedErr := h.repo.SpeedLimitExists(*speedID)
-		if speedErr != nil {
-			response.WriteJSON(w, response.Err(-2, speedErr.Error()))
-			return
-		}
-		if !exists {
-			response.WriteJSON(w, response.ErrDefault("限速规则不存在"))
-			return
-		}
+	speedID, err = h.normalizeSpeedLimitReference(speedID)
+	if err != nil {
+		response.WriteJSON(w, response.Err(-2, err.Error()))
+		return
 	}
 	port := asInt(req["inPort"], 0)
 	if port <= 0 {
@@ -1257,16 +1252,10 @@ func (h *Handler) forwardUpdate(w http.ResponseWriter, r *http.Request) {
 		strategy = forward.Strategy
 	}
 	speedID := asAnyToInt64Ptr(req["speedId"])
-	if speedID != nil {
-		exists, speedErr := h.repo.SpeedLimitExists(*speedID)
-		if speedErr != nil {
-			response.WriteJSON(w, response.Err(-2, speedErr.Error()))
-			return
-		}
-		if !exists {
-			response.WriteJSON(w, response.ErrDefault("限速规则不存在"))
-			return
-		}
+	speedID, err = h.normalizeSpeedLimitReference(speedID)
+	if err != nil {
+		response.WriteJSON(w, response.Err(-2, err.Error()))
+		return
 	}
 	newSpeedID := forward.SpeedID
 	if speedID != nil {
@@ -3123,7 +3112,8 @@ func (h *Handler) upsertUserTunnel(req map[string]interface{}) error {
 		h.repo.GetExistingUserTunnel(userID, tunnelID)
 
 	speedID := asAnyToInt64Ptr(req["speedId"])
-	if err := h.validateSpeedLimitReference(speedID); err != nil {
+	speedID, err = h.normalizeSpeedLimitReference(speedID)
+	if err != nil {
 		return err
 	}
 
@@ -3263,20 +3253,20 @@ func (h *Handler) syncUserTunnelForwards(userID, tunnelID int64) error {
 	return nil
 }
 
-func (h *Handler) validateSpeedLimitReference(speedID *int64) error {
+func (h *Handler) normalizeSpeedLimitReference(speedID *int64) (*int64, error) {
 	if speedID == nil {
-		return nil
+		return nil, nil
 	}
 
 	exists, err := h.repo.SpeedLimitExists(*speedID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if !exists {
-		return errors.New("限速规则不存在")
+		return nil, nil
 	}
 
-	return nil
+	return speedID, nil
 }
 
 func asAnySlice(v interface{}) []interface{} {

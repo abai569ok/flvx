@@ -480,6 +480,113 @@ func TestUserTunnelReassignmentKeepsStableID(t *testing.T) {
 	}
 }
 
+func TestUserTunnelSaveIgnoresDeletedSpeedLimitContract(t *testing.T) {
+	secret := "contract-jwt-secret"
+	router, repo := setupContractRouter(t, secret)
+	now := time.Now().UnixMilli()
+
+	adminToken, err := auth.GenerateToken(1, "admin_user", 0, secret)
+	if err != nil {
+		t.Fatalf("generate admin token: %v", err)
+	}
+
+	if err := repo.DB().Exec(`
+		INSERT INTO user(id, user, pwd, role_id, exp_time, flow, in_flow, out_flow, flow_reset_time, num, created_time, updated_time, status)
+		VALUES(101, 'user_tunnel_speed_user_a', 'pwd', 1, 2727251700000, 99999, 0, 0, 1, 99999, ?, ?, 1)
+	`, now, now).Error; err != nil {
+		t.Fatalf("insert user a: %v", err)
+	}
+
+	if err := repo.DB().Exec(`
+		INSERT INTO tunnel(name, traffic_ratio, type, protocol, flow, created_time, updated_time, status, in_ip, inx)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, "user-tunnel-missing-speed-tunnel", 1.0, 1, "tls", 99999, now, now, 1, nil, 0).Error; err != nil {
+		t.Fatalf("insert tunnel: %v", err)
+	}
+	tunnelID := mustLastInsertID(t, repo, "user-tunnel-missing-speed-tunnel")
+
+	if err := repo.DB().Exec(`
+		INSERT INTO speed_limit(name, speed, tunnel_id, tunnel_name, created_time, updated_time, status)
+		VALUES(?, ?, NULL, NULL, ?, NULL, ?)
+	`, "user-tunnel-missing-speed-limit", 2048, now, 1).Error; err != nil {
+		t.Fatalf("insert speed limit: %v", err)
+	}
+	speedID := mustLastInsertID(t, repo, "user-tunnel-missing-speed-limit")
+
+	if err := repo.DB().Exec(`
+		INSERT INTO user_tunnel(id, user_id, tunnel_id, speed_id, num, flow, in_flow, out_flow, flow_reset_time, exp_time, status)
+		VALUES(31, 101, ?, ?, 999, 99999, 0, 0, 1, 2727251700000, 1)
+	`, tunnelID, speedID).Error; err != nil {
+		t.Fatalf("insert user_tunnel: %v", err)
+	}
+
+	if err := repo.DB().Exec(`DELETE FROM speed_limit WHERE id = ?`, speedID).Error; err != nil {
+		t.Fatalf("delete speed limit: %v", err)
+	}
+
+	t.Run("user tunnel update auto clears missing speed", func(t *testing.T) {
+		updatePayload := map[string]interface{}{
+			"id":            31,
+			"flow":          99999,
+			"num":           999,
+			"expTime":       int64(2727251700000),
+			"flowResetTime": 1,
+			"status":        1,
+			"speedId":       speedID,
+		}
+		updateBody, err := json.Marshal(updatePayload)
+		if err != nil {
+			t.Fatalf("marshal update payload: %v", err)
+		}
+		updateReq := httptest.NewRequest(http.MethodPost, "/api/v1/tunnel/user/update", bytes.NewReader(updateBody))
+		updateReq.Header.Set("Authorization", adminToken)
+		updateReq.Header.Set("Content-Type", "application/json")
+		updateRes := httptest.NewRecorder()
+		router.ServeHTTP(updateRes, updateReq)
+		assertCode(t, updateRes, 0)
+
+		var updatedSpeed sql.NullInt64
+		if err := repo.DB().Raw(`SELECT speed_id FROM user_tunnel WHERE id = 31`).Row().Scan(&updatedSpeed); err != nil {
+			t.Fatalf("query updated user_tunnel speed_id: %v", err)
+		}
+		if updatedSpeed.Valid {
+			t.Fatalf("expected updated user_tunnel speed_id to be NULL, got %d", updatedSpeed.Int64)
+		}
+	})
+
+	t.Run("user tunnel batch assign auto clears missing speed", func(t *testing.T) {
+		if err := repo.DB().Exec(`UPDATE user_tunnel SET speed_id = ? WHERE id = 31`, speedID).Error; err != nil {
+			t.Fatalf("prepare user_tunnel speed_id for batch assign: %v", err)
+		}
+
+		assignPayload := map[string]interface{}{
+			"userId": 101,
+			"tunnels": []map[string]interface{}{{
+				"tunnelId": tunnelID,
+				"speedId":  speedID,
+			}},
+		}
+		assignBody, err := json.Marshal(assignPayload)
+		if err != nil {
+			t.Fatalf("marshal assign payload: %v", err)
+		}
+		assignReq := httptest.NewRequest(http.MethodPost, "/api/v1/tunnel/user/batch-assign", bytes.NewReader(assignBody))
+		assignReq.Header.Set("Authorization", adminToken)
+		assignReq.Header.Set("Content-Type", "application/json")
+		assignRes := httptest.NewRecorder()
+		router.ServeHTTP(assignRes, assignReq)
+		assertCode(t, assignRes, 0)
+
+		var assignedSpeed sql.NullInt64
+		if err := repo.DB().Raw(`SELECT speed_id FROM user_tunnel WHERE id = 31`).Row().Scan(&assignedSpeed); err != nil {
+			t.Fatalf("query assigned user_tunnel speed_id: %v", err)
+		}
+		if assignedSpeed.Valid {
+			t.Fatalf("expected assigned user_tunnel speed_id to be NULL, got %d", assignedSpeed.Int64)
+		}
+	})
+}
+
 func TestForwardSpeedIDWriteAndClearContracts(t *testing.T) {
 	secret := "contract-jwt-secret"
 	router, repo := setupContractRouter(t, secret)
@@ -615,6 +722,105 @@ func TestForwardSpeedIDWriteAndClearContracts(t *testing.T) {
 	}
 	if clearedSpeed.Valid {
 		t.Fatalf("expected cleared speed_id to be NULL, got %d", clearedSpeed.Int64)
+	}
+}
+
+func TestForwardUpdateIgnoresDeletedSpeedLimitContract(t *testing.T) {
+	secret := "contract-jwt-secret"
+	router, repo := setupContractRouter(t, secret)
+
+	adminToken, err := auth.GenerateToken(1, "admin_user", 0, secret)
+	if err != nil {
+		t.Fatalf("generate admin token: %v", err)
+	}
+
+	now := time.Now().UnixMilli()
+	if err := repo.DB().Exec(`
+		INSERT INTO tunnel(name, traffic_ratio, type, protocol, flow, created_time, updated_time, status, in_ip, inx)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, "forward-update-missing-speed-tunnel", 1.0, 1, "tls", 99999, now, now, 1, nil, 0).Error; err != nil {
+		t.Fatalf("insert tunnel: %v", err)
+	}
+	tunnelID := mustLastInsertID(t, repo, "forward-update-missing-speed-tunnel")
+
+	if err := repo.DB().Exec(`
+		INSERT INTO node(name, secret, server_ip, server_ip_v4, server_ip_v6, port, interface_name, version, http, tls, socks, created_time, updated_time, status, tcp_listen_addr, udp_listen_addr, inx)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, "forward-update-missing-speed-node", "forward-update-missing-speed-secret", "10.32.0.1", "10.32.0.1", "", "42000-42010", "", "v1", 1, 1, 1, now, now, 1, "[::]", "[::]", 0).Error; err != nil {
+		t.Fatalf("insert node: %v", err)
+	}
+	nodeID := mustLastInsertID(t, repo, "forward-update-missing-speed-node")
+
+	if err := repo.DB().Exec(`
+		INSERT INTO chain_tunnel(tunnel_id, chain_type, node_id, port, strategy, inx, protocol)
+		VALUES(?, 1, ?, 42001, 'round', 1, 'tls')
+	`, tunnelID, nodeID).Error; err != nil {
+		t.Fatalf("insert chain_tunnel: %v", err)
+	}
+
+	if err := repo.DB().Exec(`
+		INSERT INTO speed_limit(name, speed, tunnel_id, tunnel_name, created_time, updated_time, status)
+		VALUES(?, ?, NULL, NULL, ?, NULL, ?)
+	`, "forward-update-missing-speed-limit", 2048, now, 1).Error; err != nil {
+		t.Fatalf("insert speed limit: %v", err)
+	}
+	speedID := mustLastInsertID(t, repo, "forward-update-missing-speed-limit")
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+	stopNode := startMockNodeSession(t, server.URL, "forward-update-missing-speed-secret")
+	defer stopNode()
+
+	createPayload := map[string]interface{}{
+		"name":       "forward-update-missing-speed-target",
+		"tunnelId":   tunnelID,
+		"remoteAddr": "1.1.1.1:443",
+		"strategy":   "fifo",
+		"speedId":    speedID,
+	}
+	createBody, err := json.Marshal(createPayload)
+	if err != nil {
+		t.Fatalf("marshal create payload: %v", err)
+	}
+	createReq := httptest.NewRequest(http.MethodPost, "/api/v1/forward/create", bytes.NewReader(createBody))
+	createReq.Header.Set("Authorization", adminToken)
+	createReq.Header.Set("Content-Type", "application/json")
+	createRes := httptest.NewRecorder()
+	router.ServeHTTP(createRes, createReq)
+	assertCode(t, createRes, 0)
+
+	forwardID := mustLastInsertID(t, repo, "forward-update-missing-speed-target")
+
+	if err := repo.DB().Exec(`DELETE FROM speed_limit WHERE id = ?`, speedID).Error; err != nil {
+		t.Fatalf("delete speed limit: %v", err)
+	}
+
+	updatePayload := map[string]interface{}{
+		"id":         forwardID,
+		"name":       "forward-update-missing-speed-target-updated",
+		"tunnelId":   tunnelID,
+		"remoteAddr": "1.1.1.1:443",
+		"strategy":   "fifo",
+		"speedId":    speedID,
+	}
+	updateBody, err := json.Marshal(updatePayload)
+	if err != nil {
+		t.Fatalf("marshal update payload: %v", err)
+	}
+	updateReq := httptest.NewRequest(http.MethodPost, "/api/v1/forward/update", bytes.NewReader(updateBody))
+	updateReq.Header.Set("Authorization", adminToken)
+	updateReq.Header.Set("Content-Type", "application/json")
+	updateRes := httptest.NewRecorder()
+	router.ServeHTTP(updateRes, updateReq)
+	assertCode(t, updateRes, 0)
+
+	storedSpeed := repo.DB().Raw(`SELECT speed_id FROM forward WHERE id = ?`, forwardID).Row()
+	var updatedSpeed sql.NullInt64
+	if err := storedSpeed.Scan(&updatedSpeed); err != nil {
+		t.Fatalf("query updated forward speed_id: %v", err)
+	}
+	if updatedSpeed.Valid {
+		t.Fatalf("expected updated speed_id to be NULL after missing speed limit, got %d", updatedSpeed.Int64)
 	}
 }
 

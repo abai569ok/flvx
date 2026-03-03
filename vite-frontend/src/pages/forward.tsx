@@ -1202,6 +1202,10 @@ export default function ForwardPage() {
     );
   }, [speedLimits]);
 
+  const speedLimitIds = useMemo(() => {
+    return new Set(speedLimits.map((speedLimit) => speedLimit.id));
+  }, [speedLimits]);
+
   const availableSpeedLimits = useMemo(() => {
     return speedLimits.filter(
       (speedLimit) => !noLimitSpeedLimitIds.has(speedLimit.id),
@@ -1213,7 +1217,27 @@ export default function ForwardPage() {
       return null;
     }
 
-    return noLimitSpeedLimitIds.has(speedId) ? null : speedId;
+    if (noLimitSpeedLimitIds.has(speedId)) {
+      return null;
+    }
+
+    if (speedLimits.length > 0 && !speedLimitIds.has(speedId)) {
+      return null;
+    }
+
+    return speedId;
+  };
+
+  const isMissingSpeedLimit = (speedId?: number | null): boolean => {
+    if (speedId === null || speedId === undefined) {
+      return false;
+    }
+
+    if (speedLimits.length === 0 || noLimitSpeedLimitIds.has(speedId)) {
+      return false;
+    }
+
+    return !speedLimitIds.has(speedId);
   };
 
   const selectedSpeedId = normalizeSpeedId(form.speedId);
@@ -1388,6 +1412,8 @@ export default function ForwardPage() {
       const addressCount = processedRemoteAddr.split(",").length;
 
       let res: { code: number; msg: string };
+      const normalizedSpeedId = normalizeSpeedId(form.speedId);
+      const speedLimitAutoCleared = isMissingSpeedLimit(form.speedId);
 
       if (isEdit) {
         // 更新时确保包含必要字段
@@ -1400,7 +1426,7 @@ export default function ForwardPage() {
           ...(inIpTouched ? { inIp: form.inIp || "" } : {}),
           remoteAddr: processedRemoteAddr,
           strategy: addressCount > 1 ? form.strategy : "fifo",
-          speedId: normalizeSpeedId(form.speedId),
+          speedId: normalizedSpeedId,
         };
 
         res = await updateForward(updateData);
@@ -1412,7 +1438,7 @@ export default function ForwardPage() {
           inIp: form.inIp || undefined,
           remoteAddr: processedRemoteAddr,
           strategy: addressCount > 1 ? form.strategy : "fifo",
-          speedId: normalizeSpeedId(form.speedId),
+          speedId: normalizedSpeedId,
         };
 
         res = await createForward(createData);
@@ -1421,7 +1447,9 @@ export default function ForwardPage() {
       if (res.code === 0) {
         const warningItems = Array.isArray((res as any).data?.warnings)
           ? (res as any).data.warnings
-              .map((item: unknown) => (typeof item === "string" ? item.trim() : ""))
+              .map((item: unknown) =>
+                typeof item === "string" ? item.trim() : "",
+              )
               .filter((item: string) => item)
           : [];
 
@@ -1431,6 +1459,12 @@ export default function ForwardPage() {
             duration: 5000,
           });
         });
+        if (speedLimitAutoCleared) {
+          toast("所选限速规则不存在，已自动清除为不限速", {
+            icon: "⚠️",
+            duration: 5000,
+          });
+        }
         toast.success(isEdit ? "修改成功" : "创建成功");
         setModalOpen(false);
         loadData();
