@@ -234,6 +234,15 @@ export default function ConfigPage() {
     Partial<Record<BrandPreviewKey, boolean>>
   >({});
 
+  const handleBack = () => {
+    if (window.history.length > 1) {
+      navigate(-1);
+
+      return;
+    }
+    navigate("/profile");
+  };
+
   // 权限检查
   useEffect(() => {
     if (!isAdmin()) {
@@ -846,6 +855,22 @@ export default function ConfigPage() {
     <div className="p-6 max-w-4xl mx-auto">
       {/* 页面标题 */}
       <div className="flex items-center gap-3 mb-6">
+        <Button
+          isIconOnly
+          aria-label="返回"
+          className="min-w-0 w-9 h-9"
+          size="sm"
+          variant="flat"
+          onPress={handleBack}
+        >
+          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+            <path
+              clipRule="evenodd"
+              d="M12.707 14.707a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414l4-4a1 1 0 111.414 1.414L9.414 9.5l3.293 3.293a1 1 0 010 1.414z"
+              fillRule="evenodd"
+            />
+          </svg>
+        </Button>
         <SettingsIcon className="w-8 h-8 text-primary" />
         <div>
           <h1 className="text-2xl font-bold">网站配置</h1>

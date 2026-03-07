@@ -38,15 +38,29 @@ function parseDateText(value: string) {
     return null;
   }
 
-  const matched = trimmed.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+  // 兼容纯数字输入：YYYYMMDD
+  const digitsOnly = trimmed.replace(/\D/g, "");
 
-  if (!matched) {
+  if (digitsOnly.length === 8) {
+    const year = Number(digitsOnly.slice(0, 4));
+    const month = Number(digitsOnly.slice(4, 6));
+    const day = Number(digitsOnly.slice(6, 8));
+
+    if (isValidCalendarDate(year, month, day)) {
+      return { day, month, year };
+    }
+  }
+
+  // 兼容多种分隔输入：YYYY-MM-DD / YYYY/MM/DD / YYYY.MM.DD / YYYY年M月D日 / YYYY M D
+  const numberParts = trimmed.match(/\d+/g);
+
+  if (!numberParts || numberParts.length < 3 || numberParts[0].length !== 4) {
     return null;
   }
 
-  const year = Number(matched[1]);
-  const month = Number(matched[2]);
-  const day = Number(matched[3]);
+  const year = Number(numberParts[0]);
+  const month = Number(numberParts[1]);
+  const day = Number(numberParts[2]);
 
   if (!isValidCalendarDate(year, month, day)) {
     return null;
