@@ -52,6 +52,7 @@ import {
   batchUpgradeNodes,
   getNodeReleases,
   rollbackNode,
+  getPeerRemoteUsageList,
   type ReleaseChannel,
 } from "@/api";
 import { PageEmptyState, PageLoadingState } from "@/components/page-state";
@@ -120,6 +121,33 @@ interface NodeForm {
 
 type NodeTab = "local" | "remote";
 
+interface RemoteUsageBinding {
+  bindingId: number;
+  tunnelId: number;
+  tunnelName: string;
+  chainType: number;
+  hopInx: number;
+  allocatedPort: number;
+  resourceKey: string;
+  remoteBindingId: string;
+  updatedTime: number;
+}
+
+interface RemoteUsageNode {
+  nodeId: number;
+  nodeName: string;
+  remoteUrl: string;
+  shareId: number;
+  portRangeStart: number;
+  portRangeEnd: number;
+  maxBandwidth: number;
+  currentFlow: number;
+  usedPorts: number[];
+  bindings: RemoteUsageBinding[];
+  activeBindingNum: number;
+  syncError?: string;
+}
+
 const SortableItem = ({
   id,
   children,
@@ -174,6 +202,9 @@ export default function NodePage() {
     "node-active-tab",
     "local",
   );
+  const [remoteUsageMap, setRemoteUsageMap] = useState<
+    Record<number, RemoteUsageNode>
+  >({});
   const [isSearchVisible, setIsSearchVisible] = useState(false);
   const [dialogVisible, setDialogVisible] = useState(false);
   const [dialogTitle, setDialogTitle] = useState("");
@@ -258,6 +289,25 @@ export default function NodePage() {
     delayMs: 3000,
     onNodeOffline: handleNodeOffline,
   });
+
+  const loadRemoteUsage = useCallback(async () => {
+    try {
+      const res = await getPeerRemoteUsageList();
+
+      if (res.code === 0 && Array.isArray(res.data)) {
+        const nextMap: Record<number, RemoteUsageNode> = {};
+
+        (res.data as unknown as RemoteUsageNode[]).forEach((item) => {
+          if (!item || typeof item.nodeId !== "number") return;
+          nextMap[item.nodeId] = item;
+        });
+
+        setRemoteUsageMap(nextMap);
+      }
+    } catch {
+      // ignore remote usage errors in node page
+    }
+  }, []);
 
   // 加载节点列表
   const loadNodes = useCallback(async () => {
@@ -385,7 +435,8 @@ export default function NodePage() {
 
   useEffect(() => {
     loadNodes();
-  }, [loadNodes]);
+    loadRemoteUsage();
+  }, [loadNodes, loadRemoteUsage]);
 
   // 格式化速度
   const formatSpeed = (bytesPerSecond: number): string => {
@@ -426,6 +477,32 @@ export default function NodePage() {
     const i = Math.floor(Math.log(bytes) / Math.log(k));
 
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+  };
+
+  const formatFlow = (bytes: number): string => {
+    if (!Number.isFinite(bytes) || bytes <= 0) {
+      return "0 B";
+    }
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KB`;
+    if (bytes < 1024 * 1024 * 1024)
+      return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  };
+
+  const formatChainType = (chainType: number, hopInx: number) => {
+    if (chainType === 1) {
+      return "入口节点";
+    }
+    if (chainType === 2) {
+      return `中继跳点 #${hopInx}`;
+    }
+    if (chainType === 3) {
+      return "出口节点";
+    }
+
+    return "未知链路";
   };
 
   // 获取进度条颜色
@@ -1278,6 +1355,7 @@ export default function NodePage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
               {displayNodes.map((node) => {
                 const isRemoteNode = node.isRemote === 1;
+                const remoteUsage = isRemoteNode ? remoteUsageMap[node.id] : null;
 
                 return (
                   <SortableItem key={node.id} id={node.id}>
@@ -1426,6 +1504,117 @@ export default function NodePage() {
                               </>
                             )}
                           </div>
+
+                          {isRemoteNode && (
+                            <div className="space-y-3 mb-4">
+                              {remoteUsage ? (
+                                <>
+                                  <div className="text-xs rounded-md border border-default-200 dark:border-default-100/30 bg-default-50 dark:bg-default-100/20 p-2.5 space-y-2">
+                                    <div className="flex justify-between gap-2">
+                                      <span className="text-default-500">远程地址</span>
+                                      <span
+                                        className="font-mono text-right truncate"
+                                        title={remoteUsage.remoteUrl || node.remoteUrl || "-"}
+                                      >
+                                        {remoteUsage.remoteUrl || node.remoteUrl || "-"}
+                                      </span>
+                                    </div>
+                                    <div className="flex justify-between gap-2">
+                                      <span className="text-default-500">共享ID</span>
+                                      <span className="font-mono">#{remoteUsage.shareId}</span>
+                                    </div>
+                                    <div className="flex justify-between gap-2">
+                                      <span className="text-default-500">流量</span>
+                                      <span className="font-mono">
+                                        {formatFlow(remoteUsage.currentFlow)}
+                                      </span>
+                                    </div>
+                                    <div className="flex justify-between gap-2">
+                                      <span className="text-default-500">带宽上限</span>
+                                      <span className="font-mono">
+                                        {remoteUsage.maxBandwidth > 0
+                                          ? formatSpeed(remoteUsage.maxBandwidth)
+                                          : "不限"}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  <div className="text-xs rounded-md border border-default-200 dark:border-default-100/30 bg-default-50 dark:bg-default-100/20 p-2.5">
+                                    <div className="flex items-center justify-between mb-2">
+                                      <span className="text-default-500">占用端口</span>
+                                      <span className="font-mono text-default-700 dark:text-default-300">
+                                        {remoteUsage.usedPorts.length}/{Math.max(
+                                          remoteUsage.portRangeEnd -
+                                            remoteUsage.portRangeStart +
+                                            1,
+                                          0,
+                                        )}
+                                      </span>
+                                    </div>
+                                    <div className="max-h-20 overflow-y-auto rounded bg-white/70 dark:bg-black/20 p-1.5 [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1">
+                                      {remoteUsage.usedPorts.length > 0 ? (
+                                        <div className="flex flex-wrap gap-1">
+                                          {remoteUsage.usedPorts.map((port) => (
+                                            <Chip
+                                              key={`${node.id}-port-${port}`}
+                                              className="font-mono"
+                                              size="sm"
+                                              variant="flat"
+                                            >
+                                              {port}
+                                            </Chip>
+                                          ))}
+                                        </div>
+                                      ) : (
+                                        <div className="text-default-400">暂无占用端口</div>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  <div className="text-xs rounded-md border border-default-200 dark:border-default-100/30 bg-default-50 dark:bg-default-100/20 p-2.5">
+                                    <div className="flex items-center justify-between mb-2">
+                                      <span className="text-default-500">绑定明细</span>
+                                      <span className="font-mono text-default-700 dark:text-default-300">
+                                        {remoteUsage.activeBindingNum}
+                                      </span>
+                                    </div>
+                                    <div className="max-h-32 overflow-y-auto space-y-1.5 pr-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1">
+                                      {remoteUsage.bindings.length > 0 ? (
+                                        remoteUsage.bindings.map((binding) => (
+                                          <div
+                                            key={binding.bindingId}
+                                            className="rounded border border-default-200 dark:border-default-100/30 bg-white/70 dark:bg-black/20 p-2"
+                                          >
+                                            <div className="flex items-center justify-between gap-2">
+                                              <span
+                                                className="font-medium truncate"
+                                                title={binding.tunnelName}
+                                              >
+                                                {binding.tunnelName}
+                                              </span>
+                                              <span className="font-mono text-[11px]">
+                                                #{binding.tunnelId}
+                                              </span>
+                                            </div>
+                                            <div className="mt-1 text-[11px] text-default-500 flex items-center justify-between gap-2">
+                                              <span>{formatChainType(binding.chainType, binding.hopInx)}</span>
+                                              <span className="font-mono">端口 {binding.allocatedPort}</span>
+                                            </div>
+                                          </div>
+                                        ))
+                                      ) : (
+                                        <div className="text-default-400">暂无绑定明细</div>
+                                      )}
+                                    </div>
+                                  </div>
+                                </>
+                              ) : (
+                                <div className="text-xs rounded-md border border-default-200 dark:border-default-100/30 bg-default-50 dark:bg-default-100/20 p-2.5 text-default-500">
+                                  暂未获取到远程占用数据
+                                </div>
+                              )}
+                            </div>
+                          )}
 
                           {!isRemoteNode && (
                             <>
