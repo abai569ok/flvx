@@ -420,3 +420,68 @@ func TestBuildForwardServiceConfigs_BindIPAlreadyContainsPort(t *testing.T) {
 		}
 	}
 }
+
+func TestProcessServerAddress_StripsURLSchemeAndPath(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "https with path",
+			in:   "https://panel.example.com:8443/api/v1",
+			want: "panel.example.com:8443",
+		},
+		{
+			name: "wss with query",
+			in:   "wss://panel.example.com:443/system-info?x=1",
+			want: "panel.example.com:443",
+		},
+		{
+			name: "http without port",
+			in:   "http://panel.example.com",
+			want: "panel.example.com",
+		},
+		{
+			name: "manual host with trailing path",
+			in:   "panel.example.com:8080/path",
+			want: "panel.example.com:8080",
+		},
+	}
+
+	for _, tt := range tests {
+		if got := processServerAddress(tt.in); got != tt.want {
+			t.Fatalf("%s: expected %q, got %q", tt.name, tt.want, got)
+		}
+	}
+}
+
+func TestProcessServerAddress_NormalizesIPv6(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "ipv6 host only",
+			in:   "2001:db8::1",
+			want: "[2001:db8::1]",
+		},
+		{
+			name: "ipv6 host and port",
+			in:   "https://[2001:db8::1]:8443/path",
+			want: "[2001:db8::1]:8443",
+		},
+		{
+			name: "already bracketed",
+			in:   "[2001:db8::2]:9000",
+			want: "[2001:db8::2]:9000",
+		},
+	}
+
+	for _, tt := range tests {
+		if got := processServerAddress(tt.in); got != tt.want {
+			t.Fatalf("%s: expected %q, got %q", tt.name, tt.want, got)
+		}
+	}
+}

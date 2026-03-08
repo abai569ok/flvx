@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-gost/core/observer/stats"
@@ -18,6 +20,15 @@ import (
 var httpReportURL string
 var configReportURL string
 var httpAESCrypto *crypto.AESCrypto // 新增：HTTP上报加密器
+var reportURLPreferenceMutex sync.RWMutex
+var preferredUploadURL string
+var preferredConfigURL string
+var reportDo = func(ctx context.Context, req *http.Request, timeout time.Duration) (*http.Response, error) {
+	client := &http.Client{
+		Timeout: timeout,
+	}
+	return client.Do(req.WithContext(ctx))
+}
 
 // TrafficReportItem 流量报告项（压缩格式）
 type TrafficReportItem struct {
@@ -27,8 +38,17 @@ type TrafficReportItem struct {
 }
 
 func SetHTTPReportURL(addr string, secret string) {
-	httpReportURL = "http://" + addr + "/flow/upload?secret=" + secret
-	configReportURL = "http://" + addr + "/flow/config?secret=" + secret
+	uploadURLs, configURLs := buildReportURLCandidates(addr, secret)
+	if len(uploadURLs) > 0 {
+		httpReportURL = strings.Join(uploadURLs, ",")
+	}
+	if len(configURLs) > 0 {
+		configReportURL = strings.Join(configURLs, ",")
+	}
+	reportURLPreferenceMutex.Lock()
+	preferredUploadURL = ""
+	preferredConfigURL = ""
+	reportURLPreferenceMutex.Unlock()
 
 	// 创建 AES 加密器
 	var err error
@@ -41,8 +61,173 @@ func SetHTTPReportURL(addr string, secret string) {
 	}
 }
 
+func buildReportURLCandidates(addr string, secret string) (upload []string, config []string) {
+	normalizedAddr, explicitScheme := normalizeReportAddress(addr)
+	if normalizedAddr == "" {
+		normalizedAddr = strings.TrimSpace(addr)
+	}
+
+	schemes := []string{"https", "http"}
+	if mappedScheme := mapToHTTPScheme(explicitScheme); mappedScheme == "http" {
+		schemes = []string{"http", "https"}
+	}
+
+	upload = []string{
+		schemes[0] + "://" + normalizedAddr + "/flow/upload?secret=" + secret,
+		schemes[1] + "://" + normalizedAddr + "/flow/upload?secret=" + secret,
+	}
+	config = []string{
+		schemes[0] + "://" + normalizedAddr + "/flow/config?secret=" + secret,
+		schemes[1] + "://" + normalizedAddr + "/flow/config?secret=" + secret,
+	}
+	return upload, config
+}
+
+func normalizeReportAddress(addr string) (string, string) {
+	raw := strings.TrimSpace(addr)
+	if raw == "" {
+		return "", ""
+	}
+
+	scheme := ""
+	if idx := strings.Index(raw, "://"); idx > 0 {
+		scheme = strings.ToLower(strings.TrimSpace(raw[:idx]))
+		if parsed, err := url.Parse(raw); err == nil {
+			if host := strings.TrimSpace(parsed.Host); host != "" {
+				return host, scheme
+			}
+		}
+		raw = raw[idx+3:]
+	}
+
+	if idx := strings.IndexAny(raw, "/?#"); idx >= 0 {
+		raw = raw[:idx]
+	}
+	return strings.TrimSpace(raw), scheme
+}
+
+func mapToHTTPScheme(scheme string) string {
+	switch strings.ToLower(strings.TrimSpace(scheme)) {
+	case "https", "wss":
+		return "https"
+	case "http", "ws":
+		return "http"
+	default:
+		return ""
+	}
+}
+
+func loadPreferredURL(preferred *string) string {
+	if preferred == nil {
+		return ""
+	}
+
+	reportURLPreferenceMutex.RLock()
+	defer reportURLPreferenceMutex.RUnlock()
+	return *preferred
+}
+
+func storePreferredURL(preferred *string, value string) {
+	if preferred == nil {
+		return
+	}
+
+	reportURLPreferenceMutex.Lock()
+	defer reportURLPreferenceMutex.Unlock()
+	*preferred = value
+}
+
+func prioritizeURLs(urls []string, preferred string) []string {
+	ordered := append([]string(nil), urls...)
+	if preferred == "" || len(ordered) < 2 {
+		return ordered
+	}
+
+	for i, targetURL := range ordered {
+		if targetURL == preferred {
+			if i > 0 {
+				ordered[0], ordered[i] = ordered[i], ordered[0]
+			}
+			break
+		}
+	}
+
+	return ordered
+}
+
+func postJSONWithFallback(ctx context.Context, urls []string, requestBody []byte, userAgent string, timeout time.Duration, preferred *string) (bool, error) {
+	if len(urls) == 0 {
+		return false, fmt.Errorf("上报URL未设置")
+	}
+
+	orderedURLs := prioritizeURLs(urls, loadPreferredURL(preferred))
+
+	var errs []string
+	for i, targetURL := range orderedURLs {
+		req, err := http.NewRequest("POST", targetURL, bytes.NewBuffer(requestBody))
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("%s => 创建请求失败: %v", targetURL, err))
+			if i < len(orderedURLs)-1 {
+				fmt.Printf("⚠️ HTTP上报尝试失败，准备回退: %s => 创建请求失败: %v\n", targetURL, err)
+			}
+			continue
+		}
+
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("User-Agent", userAgent)
+
+		resp, err := reportDo(ctx, req, timeout)
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("%s => 请求失败: %v", targetURL, err))
+			if i < len(orderedURLs)-1 {
+				fmt.Printf("⚠️ HTTP上报尝试失败，准备回退: %s => 请求失败: %v\n", targetURL, err)
+			}
+			continue
+		}
+
+		var responseBytes bytes.Buffer
+		_, readErr := responseBytes.ReadFrom(resp.Body)
+		resp.Body.Close()
+		if readErr != nil {
+			errs = append(errs, fmt.Sprintf("%s => 读取响应失败: %v", targetURL, readErr))
+			if i < len(orderedURLs)-1 {
+				fmt.Printf("⚠️ HTTP上报尝试失败，准备回退: %s => 读取响应失败: %v\n", targetURL, readErr)
+			}
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			errs = append(errs, fmt.Sprintf("%s => HTTP响应错误: %d %s", targetURL, resp.StatusCode, resp.Status))
+			if i < len(orderedURLs)-1 {
+				fmt.Printf("⚠️ HTTP上报尝试失败，准备回退: %s => HTTP响应错误: %d %s\n", targetURL, resp.StatusCode, resp.Status)
+			}
+			continue
+		}
+
+		responseText := strings.TrimSpace(responseBytes.String())
+		if responseText == "ok" {
+			if i > 0 {
+				fmt.Printf("↪️ HTTP上报已自动回退到: %s\n", targetURL)
+			}
+			storePreferredURL(preferred, targetURL)
+			return true, nil
+		}
+
+		errs = append(errs, fmt.Sprintf("%s => 服务器响应: %s (期望: ok)", targetURL, responseText))
+		if i < len(orderedURLs)-1 {
+			fmt.Printf("⚠️ HTTP上报尝试失败，准备回退: %s => 服务器响应: %s (期望: ok)\n", targetURL, responseText)
+		}
+	}
+
+	return false, fmt.Errorf("发送HTTP请求失败: %s", strings.Join(errs, " | "))
+}
+
 // sendBatchTrafficReport 批量发送多个服务的流量报告到HTTP接口
 func sendBatchTrafficReport(ctx context.Context, reportItems []TrafficReportItem) (bool, error) {
+	if httpReportURL == "" {
+		return false, fmt.Errorf("流量上报URL未设置")
+	}
+
 	jsonData, err := json.Marshal(reportItems)
 	if err != nil {
 		return false, fmt.Errorf("序列化报告数据失败: %v", err)
@@ -73,45 +258,15 @@ func sendBatchTrafficReport(ctx context.Context, reportItems []TrafficReportItem
 		requestBody = jsonData
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", httpReportURL, bytes.NewBuffer(requestBody))
-	if err != nil {
-		return false, fmt.Errorf("创建HTTP请求失败: %v", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "GOST-Traffic-Reporter/1.0")
-
-	client := &http.Client{
-		Timeout: 5 * time.Second,
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return false, fmt.Errorf("发送HTTP请求失败: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return false, fmt.Errorf("HTTP响应错误: %d %s", resp.StatusCode, resp.Status)
-	}
-
-	// 读取响应内容
-	var responseBytes bytes.Buffer
-	_, err = responseBytes.ReadFrom(resp.Body)
-	if err != nil {
-		return false, fmt.Errorf("读取响应内容失败: %v", err)
-	}
-
-	responseText := strings.TrimSpace(responseBytes.String())
-
-	// 检查响应是否为"ok"
-	if responseText == "ok" {
-		return true, nil
-	} else {
-		return false, fmt.Errorf("服务器响应: %s (期望: ok)", responseText)
-	}
+	return postJSONWithFallback(
+		ctx,
+		strings.Split(httpReportURL, ","),
+		requestBody,
+		"GOST-Traffic-Reporter/1.0",
+		5*time.Second,
+		&preferredUploadURL,
+	)
 }
-
 
 // sendConfigReport 发送配置报告到HTTP接口
 func sendConfigReport(ctx context.Context) (bool, error) {
@@ -150,43 +305,14 @@ func sendConfigReport(ctx context.Context) (bool, error) {
 		requestBody = configData
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", configReportURL, bytes.NewBuffer(requestBody))
-	if err != nil {
-		return false, fmt.Errorf("创建HTTP请求失败: %v", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "Config-Reporter/1.0")
-
-	client := &http.Client{
-		Timeout: 10 * time.Second, // 配置上报可以稍长一些
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return false, fmt.Errorf("发送HTTP请求失败: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return false, fmt.Errorf("HTTP响应错误: %d %s", resp.StatusCode, resp.Status)
-	}
-
-	// 读取响应内容
-	var responseBytes bytes.Buffer
-	_, err = responseBytes.ReadFrom(resp.Body)
-	if err != nil {
-		return false, fmt.Errorf("读取响应内容失败: %v", err)
-	}
-
-	responseText := strings.TrimSpace(responseBytes.String())
-
-	// 检查响应是否为"ok"
-	if responseText == "ok" {
-		return true, nil
-	} else {
-		return false, fmt.Errorf("服务器响应: %s (期望: ok)", responseText)
-	}
+	return postJSONWithFallback(
+		ctx,
+		strings.Split(configReportURL, ","),
+		requestBody,
+		"Config-Reporter/1.0",
+		10*time.Second,
+		&preferredConfigURL,
+	)
 }
 
 // StartConfigReporter 启动配置定时上报器（每10分钟上报一次）
