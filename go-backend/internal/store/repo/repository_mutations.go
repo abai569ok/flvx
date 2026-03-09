@@ -3,6 +3,7 @@ package repo
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -196,12 +197,15 @@ func (r *Repository) GetUserDefaultsForTunnel(userID int64) (flow int64, num int
 	return user.Flow, user.Num, user.ExpTime, user.FlowResetTime, nil
 }
 
-func (r *Repository) CreateNode(name, secret, serverIP string, serverIPV4, serverIPV6, port, interfaceName, version interface{}, httpFlag, tlsFlag, socksFlag int, now int64, status int, tcpAddr, udpAddr string, inx, isRemote int, remoteURL, remoteToken, remoteConfig, extraIPs interface{}) error {
+func (r *Repository) CreateNode(name, secret, serverIP string, serverIPV4, serverIPV6, port, interfaceName, version, remark, expiryTime, renewalCycle interface{}, httpFlag, tlsFlag, socksFlag int, now int64, status int, tcpAddr, udpAddr string, inx, isRemote int, remoteURL, remoteToken, remoteConfig, extraIPs interface{}) error {
 	if r == nil || r.db == nil {
 		return errors.New("repository not initialized")
 	}
 	node := model.Node{
 		Name:          name,
+		Remark:        nullStringFromInterface(remark),
+		ExpiryTime:    nullInt64FromInterface(expiryTime),
+		RenewalCycle:  nullStringFromInterface(renewalCycle),
 		Secret:        secret,
 		ServerIP:      serverIP,
 		ServerIPV4:    nullStringFromInterface(serverIPV4),
@@ -239,7 +243,7 @@ func (r *Repository) GetNodeStatusFields(nodeID int64) (status, httpFlag, tlsFla
 	return node.Status, node.HTTP, node.TLS, node.Socks, nil
 }
 
-func (r *Repository) UpdateNode(id int64, name, serverIP string, serverIPV4, serverIPV6, port, interfaceName, extraIPs interface{}, httpFlag, tlsFlag, socksFlag int, tcpAddr, udpAddr string, now int64) error {
+func (r *Repository) UpdateNode(id int64, name, serverIP string, serverIPV4, serverIPV6, port, interfaceName, extraIPs, remark, expiryTime, renewalCycle interface{}, httpFlag, tlsFlag, socksFlag int, tcpAddr, udpAddr string, now int64) error {
 	if r == nil || r.db == nil {
 		return errors.New("repository not initialized")
 	}
@@ -247,6 +251,9 @@ func (r *Repository) UpdateNode(id int64, name, serverIP string, serverIPV4, ser
 		Where("id = ?", id).
 		Updates(map[string]interface{}{
 			"name":            name,
+			"remark":          nullStringFromInterface(remark),
+			"expiry_time":     nullInt64FromInterface(expiryTime),
+			"renewal_cycle":   nullStringFromInterface(renewalCycle),
 			"server_ip":       serverIP,
 			"server_ip_v4":    nullStringFromInterface(serverIPV4),
 			"server_ip_v6":    nullStringFromInterface(serverIPV6),
@@ -1476,4 +1483,60 @@ func (r *Repository) ReplaceUserGroupsByUserID(userID int64, newGroupIDs []int64
 		}
 	}
 	return affectedGroupIDs, nil
+}
+
+func (r *Repository) AdvanceNodeRenewalCycles(now int64) (int, error) {
+	if r == nil || r.db == nil {
+		return 0, nil
+	}
+
+	var nodes []model.Node
+	if err := r.db.Where("renewal_cycle IS NOT NULL AND renewal_cycle != '' AND expiry_time IS NOT NULL").Find(&nodes).Error; err != nil {
+		return 0, fmt.Errorf("list nodes with renewal cycle: %w", err)
+	}
+
+	advanced := 0
+	for _, node := range nodes {
+		if !node.ExpiryTime.Valid || node.ExpiryTime.Int64 <= 0 {
+			continue
+		}
+
+		cycleMonths := 0
+		switch node.RenewalCycle.String {
+		case "month":
+			cycleMonths = 1
+		case "quarter":
+			cycleMonths = 3
+		case "year":
+			cycleMonths = 12
+		default:
+			continue
+		}
+
+		anchorTime := node.ExpiryTime.Int64
+		for anchorTime <= now {
+			nextAnchor := advanceByMonths(anchorTime, cycleMonths)
+			if nextAnchor <= anchorTime {
+				break
+			}
+			anchorTime = nextAnchor
+		}
+
+		if anchorTime == node.ExpiryTime.Int64 {
+			continue
+		}
+
+		if err := r.db.Model(&model.Node{}).Where("id = ?", node.ID).Update("expiry_time", anchorTime).Error; err != nil {
+			continue
+		}
+		advanced++
+	}
+
+	return advanced, nil
+}
+
+func advanceByMonths(timestamp int64, months int) int64 {
+	t := time.Unix(timestamp/1000, 0)
+	next := t.AddDate(0, months, 0)
+	return next.UnixMilli()
 }
