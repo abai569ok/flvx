@@ -1155,6 +1155,10 @@ func (h *Handler) forwardCreate(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.ErrDefault("隧道已禁用，无法创建转发"))
 		return
 	}
+	if err := h.ensureUserTunnelForwardAllowed(userID, tunnelID, time.Now().UnixMilli()); err != nil {
+		response.WriteJSON(w, response.ErrDefault(err.Error()))
+		return
+	}
 	name := asString(req["name"])
 	remoteAddr := asString(req["remoteAddr"])
 	if name == "" || remoteAddr == "" {
@@ -1444,11 +1448,16 @@ func (h *Handler) forwardResume(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
+	now := time.Now().UnixMilli()
+	if err := h.ensureUserTunnelForwardAllowed(forward.UserID, forward.TunnelID, now); err != nil {
+		response.WriteJSON(w, response.ErrDefault(err.Error()))
+		return
+	}
 	if err := h.controlForwardServices(forward, "ResumeService", false); err != nil {
 		response.WriteJSON(w, response.ErrDefault(err.Error()))
 		return
 	}
-	_ = h.repo.UpdateForwardStatus(id, 1, time.Now().UnixMilli())
+	_ = h.repo.UpdateForwardStatus(id, 1, now)
 	response.WriteJSON(w, response.OKEmpty())
 }
 
@@ -1571,9 +1580,14 @@ func (h *Handler) forwardBatchResume(w http.ResponseWriter, r *http.Request) {
 	}
 	s := 0
 	f := 0
+	now := time.Now().UnixMilli()
 	for _, id := range ids {
 		forward, accessErr := h.ensureForwardAccessByActor(actorUserID, actorRole, id)
 		if accessErr != nil {
+			f++
+			continue
+		}
+		if err := h.ensureUserTunnelForwardAllowed(forward.UserID, forward.TunnelID, now); err != nil {
 			f++
 			continue
 		}
@@ -1581,7 +1595,7 @@ func (h *Handler) forwardBatchResume(w http.ResponseWriter, r *http.Request) {
 			f++
 			continue
 		}
-		if err := h.repo.UpdateForwardStatus(id, 1, time.Now().UnixMilli()); err != nil {
+		if err := h.repo.UpdateForwardStatus(id, 1, now); err != nil {
 			f++
 		} else {
 			s++
