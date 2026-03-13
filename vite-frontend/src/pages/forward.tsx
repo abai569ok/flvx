@@ -1,4 +1,8 @@
-import type { ForwardApiItem, SpeedLimitApiItem } from "@/api/types";
+import type {
+  BatchOperationFailure,
+  ForwardApiItem,
+  SpeedLimitApiItem,
+} from "@/api/types";
 
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import toast from "react-hot-toast";
@@ -24,6 +28,7 @@ import { CSS } from "@dnd-kit/utilities";
 
 import { SearchBar } from "@/components/search-bar";
 import { AnimatedPage } from "@/components/animated-page";
+import { BatchActionResultModal } from "@/components/batch-action-result-modal";
 import { Card, CardBody, CardHeader } from "@/shadcn-bridge/heroui/card";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Input } from "@/shadcn-bridge/heroui/input";
@@ -174,6 +179,20 @@ interface BatchProgressState {
   label: string;
   percent: number;
 }
+
+interface BatchResultModalState {
+  failures: BatchOperationFailure[];
+  open: boolean;
+  summary: string;
+  title: string;
+}
+
+const EMPTY_BATCH_RESULT_MODAL_STATE: BatchResultModalState = {
+  failures: [],
+  open: false,
+  summary: "",
+  title: "",
+};
 
 type ForwardGroupOrderMap = Record<string, string[]>;
 type ForwardGroupCollapsedMap = Record<string, boolean>;
@@ -672,6 +691,8 @@ export default function ForwardPage() {
   const [batchTargetTunnelId, setBatchTargetTunnelId] = useState<number | null>(
     null,
   );
+  const [batchResultModal, setBatchResultModal] =
+    useState<BatchResultModalState>(EMPTY_BATCH_RESULT_MODAL_STATE);
   const [batchLoading, setBatchLoading] = useState(false);
   const [batchProgress, setBatchProgress] = useState<BatchProgressState>({
     active: false,
@@ -2440,6 +2461,36 @@ export default function ForwardPage() {
     setSelectedIds(new Set());
   };
 
+  const presentBatchOutcome = useCallback(
+    (outcome: {
+      failureDetails?: BatchOperationFailure[];
+      resultSummary?: string;
+      resultTitle?: string;
+      toastMessage: string;
+      toastVariant: "success" | "error";
+    }) => {
+      const failureDetails = outcome.failureDetails || [];
+
+      if (failureDetails.length > 0) {
+        setBatchResultModal({
+          failures: failureDetails,
+          open: true,
+          summary: outcome.resultSummary || outcome.toastMessage,
+          title: outcome.resultTitle || "批量操作结果",
+        });
+
+        return;
+      }
+
+      if (outcome.toastVariant === "success") {
+        toast.success(outcome.toastMessage);
+      } else {
+        toast.error(outcome.toastMessage);
+      }
+    },
+    [],
+  );
+
   const handleBatchDelete = async () => {
     if (selectedIds.size === 0) return;
     setBatchLoading(true);
@@ -2451,11 +2502,7 @@ export default function ForwardPage() {
     try {
       const outcome = await executeForwardBatchDelete(Array.from(selectedIds));
 
-      if (outcome.toastVariant === "success") {
-        toast.success(outcome.toastMessage);
-      } else {
-        toast.error(outcome.toastMessage);
-      }
+      presentBatchOutcome(outcome);
 
       if (outcome.shouldRefresh) {
         setBatchProgress({
@@ -2490,11 +2537,7 @@ export default function ForwardPage() {
         enable,
       );
 
-      if (outcome.toastVariant === "success") {
-        toast.success(outcome.toastMessage);
-      } else {
-        toast.error(outcome.toastMessage);
-      }
+      presentBatchOutcome(outcome);
 
       if (outcome.shouldRefresh) {
         setBatchProgress({
@@ -2525,11 +2568,7 @@ export default function ForwardPage() {
         Array.from(selectedIds),
       );
 
-      if (outcome.toastVariant === "success") {
-        toast.success(outcome.toastMessage);
-      } else {
-        toast.error(outcome.toastMessage);
-      }
+      presentBatchOutcome(outcome);
 
       if (outcome.shouldRefresh) {
         setBatchProgress({
@@ -2561,11 +2600,7 @@ export default function ForwardPage() {
         batchTargetTunnelId,
       );
 
-      if (outcome.toastVariant === "success") {
-        toast.success(outcome.toastMessage);
-      } else {
-        toast.error(outcome.toastMessage);
-      }
+      presentBatchOutcome(outcome);
 
       if (outcome.shouldRefresh) {
         setBatchProgress({
@@ -5847,6 +5882,22 @@ export default function ForwardPage() {
           )}
         </ModalContent>
       </Modal>
+
+      <BatchActionResultModal
+        failures={batchResultModal.failures}
+        isOpen={batchResultModal.open}
+        summary={batchResultModal.summary}
+        title={batchResultModal.title}
+        onOpenChange={(open) => {
+          if (open) {
+            setBatchResultModal((prev) => ({ ...prev, open: true }));
+
+            return;
+          }
+
+          setBatchResultModal(EMPTY_BATCH_RESULT_MODAL_STATE);
+        }}
+      />
 
       {/* 筛选模态框 */}
       <Modal
