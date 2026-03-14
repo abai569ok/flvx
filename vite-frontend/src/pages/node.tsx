@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import toast from "react-hot-toast";
+import { parseDate } from "@internationalized/date";
 import {
   DndContext,
   KeyboardSensor,
@@ -39,6 +40,7 @@ import { Progress } from "@/shadcn-bridge/heroui/progress";
 import { Accordion, AccordionItem } from "@/shadcn-bridge/heroui/accordion";
 import { Select, SelectItem } from "@/shadcn-bridge/heroui/select";
 import { Checkbox } from "@/shadcn-bridge/heroui/checkbox";
+import { DatePicker } from "@/shadcn-bridge/heroui/date-picker";
 import {
   createNode,
   getNodeList,
@@ -2374,26 +2376,37 @@ export default function NodePage() {
                 </Select>
               </div>
 
-              <Input
+              <DatePicker
+                showMonthAndYearPickers
                 description="填写最近一次续费时间或周期起始时间，系统会按月/季/年自动推算下次续费"
                 errorMessage={errors.expiryTime}
                 isInvalid={!!errors.expiryTime}
                 label="续费基准时间"
-                type="datetime-local"
                 value={
                   form.expiryTime > 0
-                    ? new Date(form.expiryTime).toISOString().slice(0, 16)
-                    : ""
+                    ? (parseDate(
+                        new Date(form.expiryTime).toISOString().split("T")[0],
+                      ) as any)
+                    : null
                 }
-                variant="bordered"
-                onChange={(e) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    expiryTime: e.target.value
-                      ? new Date(e.target.value).getTime()
-                      : 0,
-                  }))
-                }
+                onChange={(date) => {
+                  if (date) {
+                    const jsDate = new Date(
+                      date.year,
+                      date.month - 1,
+                      date.day,
+                    );
+                    setForm((prev) => ({
+                      ...prev,
+                      expiryTime: jsDate.getTime(),
+                    }));
+                  } else {
+                    setForm((prev) => ({
+                      ...prev,
+                      expiryTime: 0,
+                    }));
+                  }
+                }}
               />
 
               <Alert
