@@ -1,4 +1,8 @@
-import type { ForwardApiItem, SpeedLimitApiItem } from "@/api/types";
+import type {
+  BatchOperationFailure,
+  ForwardApiItem,
+  SpeedLimitApiItem,
+} from "@/api/types";
 
 
 
@@ -24,8 +28,8 @@ import {
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 
-import { SearchBar } from "@/components/search-bar";
 import { AnimatedPage } from "@/components/animated-page";
+import { BatchActionResultModal } from "@/components/batch-action-result-modal";
 import { Card, CardBody, CardHeader } from "@/shadcn-bridge/heroui/card";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Input } from "@/shadcn-bridge/heroui/input";
@@ -97,7 +101,6 @@ import {
 import { buildForwardOrder, FORWARD_ORDER_KEY } from "@/pages/forward/order";
 import { PageLoadingState } from "@/components/page-state";
 // import { useMobileBreakpoint } from "@/hooks/useMobileBreakpoint";
-import { useLocalStorageState } from "@/hooks/use-local-storage-state";
 import { saveOrder } from "@/utils/order-storage";
 import { JwtUtil } from "@/utils/jwt";
 
@@ -176,6 +179,20 @@ interface BatchProgressState {
   label: string;
   percent: number;
 }
+
+interface BatchResultModalState {
+  failures: BatchOperationFailure[];
+  open: boolean;
+  summary: string;
+  title: string;
+}
+
+const EMPTY_BATCH_RESULT_MODAL_STATE: BatchResultModalState = {
+  failures: [],
+  open: false,
+  summary: "",
+  title: "",
+};
 
 type ForwardGroupOrderMap = Record<string, string[]>;
 type ForwardGroupCollapsedMap = Record<string, boolean>;
@@ -587,10 +604,7 @@ const SortableTunnelGroupContainer = ({
   bodyClassName: string;
   children: React.ReactNode;
 }) => {
-  const sortableId = buildTunnelGroupSortableId(
-    groupUserId,
-    tunnel.tunnelKey,
-  );
+  const sortableId = buildTunnelGroupSortableId(groupUserId, tunnel.tunnelKey);
   const {
     attributes,
     listeners,
@@ -603,10 +617,10 @@ const SortableTunnelGroupContainer = ({
   const style: React.CSSProperties = {
     transform: transform
       ? CSS.Transform.toString({
-        ...transform,
-        x: Math.round(transform.x),
-        y: Math.round(transform.y),
-      })
+          ...transform,
+          x: Math.round(transform.x),
+          y: Math.round(transform.y),
+        })
       : undefined,
     transition: isDragging ? undefined : transition || undefined,
     opacity: isDragging ? 0.55 : 1,
@@ -683,10 +697,10 @@ const SortableForwardCard = ({ forward, renderCard }: any) => {
   const style: React.CSSProperties = {
     transform: transform
       ? CSS.Transform.toString({
-        ...transform,
-        x: Math.round(transform.x),
-        y: Math.round(transform.y),
-      })
+          ...transform,
+          x: Math.round(transform.x),
+          y: Math.round(transform.y),
+        })
       : undefined,
     transition: isDragging ? undefined : transition || undefined,
     opacity: isDragging ? 0.5 : 1,
@@ -797,11 +811,11 @@ const SortableCompactTableRow = ({
 
   const style = {
     transform: CSS.Transform.toString(transform),
-    transition: isDragging ? 'none' : transition,
+    transition: isDragging ? "none" : transition,
     opacity: isDragging ? 0.6 : 1,
     zIndex: isDragging ? 50 : undefined,
-    position: isDragging ? ('relative' as const) : undefined,
-    willChange: 'transform',
+    position: isDragging ? ("relative" as const) : undefined,
+    willChange: "transform",
     backgroundColor: isDragging ? "var(--nextui-default-100)" : undefined,
   };
 
@@ -898,10 +912,18 @@ export default function ForwardPage() {
     userId: tokenUserId ? tokenUserId.toString() : "all",
     tunnelId: "all",
     inPort: "",
-    remoteAddr: ""
+    remoteAddr: "",
   });
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
-  const activeFilterCount = (searchParams.name ? 1 : 0) + (searchParams.userId !== "all" && searchParams.userId !== (tokenUserId ? tokenUserId.toString() : "all") ? 1 : 0) + (searchParams.tunnelId !== "all" ? 1 : 0) + (searchParams.inPort ? 1 : 0) + (searchParams.remoteAddr ? 1 : 0);
+  const activeFilterCount =
+    (searchParams.name ? 1 : 0) +
+    (searchParams.userId !== "all" &&
+    searchParams.userId !== (tokenUserId ? tokenUserId.toString() : "all")
+      ? 1
+      : 0) +
+    (searchParams.tunnelId !== "all" ? 1 : 0) +
+    (searchParams.inPort ? 1 : 0) +
+    (searchParams.remoteAddr ? 1 : 0);
   const [loading, setLoading] = useState(true);
   const [forwards, setForwards] = useState<Forward[]>([]);
   const [tunnels, setTunnels] = useState<Tunnel[]>([]);
@@ -1014,6 +1036,8 @@ export default function ForwardPage() {
     label: "",
     percent: 0,
   });
+  const [batchResultModal, setBatchResultModal] =
+    useState<BatchResultModalState>(EMPTY_BATCH_RESULT_MODAL_STATE);
   const [groupOrderMap, setGroupOrderMap] = useState<ForwardGroupOrderMap>({});
   const [collapsedTunnelGroups, setCollapsedTunnelGroups] =
     useState<ForwardGroupCollapsedMap>({});
@@ -1133,7 +1157,7 @@ export default function ForwardPage() {
         buildForwardGroupOrderLocalKey(tokenUserId),
         JSON.stringify(nextOrderMap),
       );
-    } catch { }
+    } catch {}
   };
 
   const persistGroupCollapsedToLocal = (
@@ -1148,7 +1172,7 @@ export default function ForwardPage() {
         buildForwardGroupCollapsedLocalKey(tokenUserId),
         JSON.stringify(nextCollapsedMap),
       );
-    } catch { }
+    } catch {}
   };
 
   const persistGroupOrderToGlobal = async (
@@ -1292,7 +1316,7 @@ export default function ForwardPage() {
               JSON.stringify(globalCollapsedBucket),
             );
           }
-        } catch { }
+        } catch {}
       }
 
       if (cancelled) {
@@ -1556,7 +1580,7 @@ export default function ForwardPage() {
     setViewMode(newMode);
     try {
       localStorage.setItem("forward-view-mode", newMode);
-    } catch { }
+    } catch {}
   };
 
   // 切换精简模式
@@ -1969,10 +1993,10 @@ export default function ForwardPage() {
       if (res.code === 0) {
         const warningItems = Array.isArray((res as any).data?.warnings)
           ? (res as any).data.warnings
-            .map((item: unknown) =>
-              typeof item === "string" ? item.trim() : "",
-            )
-            .filter((item: string) => item)
+              .map((item: unknown) =>
+                typeof item === "string" ? item.trim() : "",
+              )
+              .filter((item: string) => item)
           : [];
 
         warningItems.forEach((warning: string) => {
@@ -2085,7 +2109,7 @@ export default function ForwardPage() {
           onStart: (payload) => {
             const startForwardName =
               typeof payload.forwardName === "string" &&
-                payload.forwardName.trim() !== ""
+              payload.forwardName.trim() !== ""
                 ? payload.forwardName
                 : forward.name;
             const startTotal = Number(payload.total);
@@ -2279,6 +2303,7 @@ export default function ForwardPage() {
         toast.success(`已复制${label}`);
       } else {
         const textArea = document.createElement("textarea");
+
         textArea.value = text;
         textArea.style.position = "fixed";
         textArea.style.left = "-9999px";
@@ -2289,7 +2314,9 @@ export default function ForwardPage() {
         catch (err) { toast.error("复制失败"); }
         document.body.removeChild(textArea);
       }
-    } catch { toast.error("复制失败"); }
+    } catch {
+      toast.error("复制失败");
+    }
   };
 
   // 复制地址
@@ -2782,6 +2809,36 @@ export default function ForwardPage() {
     setSelectedIds(new Set());
   };
 
+  const presentBatchOutcome = useCallback(
+    (outcome: {
+      failureDetails?: BatchOperationFailure[];
+      resultSummary?: string;
+      resultTitle?: string;
+      toastMessage: string;
+      toastVariant: "success" | "error";
+    }) => {
+      const failureDetails = outcome.failureDetails || [];
+
+      if (failureDetails.length > 0) {
+        setBatchResultModal({
+          failures: failureDetails,
+          open: true,
+          summary: outcome.resultSummary || outcome.toastMessage,
+          title: outcome.resultTitle || "批量操作结果",
+        });
+
+        return;
+      }
+
+      if (outcome.toastVariant === "success") {
+        toast.success(outcome.toastMessage);
+      } else {
+        toast.error(outcome.toastMessage);
+      }
+    },
+    [],
+  );
+
   const handleBatchDelete = async () => {
     if (selectedIds.size === 0) return;
     setBatchLoading(true);
@@ -2793,11 +2850,7 @@ export default function ForwardPage() {
     try {
       const outcome = await executeForwardBatchDelete(Array.from(selectedIds));
 
-      if (outcome.toastVariant === "success") {
-        toast.success(outcome.toastMessage);
-      } else {
-        toast.error(outcome.toastMessage);
-      }
+      presentBatchOutcome(outcome);
 
       if (outcome.shouldRefresh) {
         setBatchProgress({
@@ -2960,25 +3013,40 @@ export default function ForwardPage() {
 
     if (searchParams.userId !== "all") {
       const targetUserId = parseInt(searchParams.userId);
-      filteredForwards = filteredForwards.filter(f => f.userId === targetUserId || (targetUserId === 0 && !f.userId));
+
+      filteredForwards = filteredForwards.filter(
+        (f) => f.userId === targetUserId || (targetUserId === 0 && !f.userId),
+      );
     }
     if (searchParams.tunnelId !== "all") {
       const targetTunnelId = parseInt(searchParams.tunnelId);
-      filteredForwards = filteredForwards.filter(f => f.tunnelId === targetTunnelId);
+
+      filteredForwards = filteredForwards.filter(
+        (f) => f.tunnelId === targetTunnelId,
+      );
     }
     if (searchParams.name.trim()) {
       const lowerName = searchParams.name.toLowerCase();
-      filteredForwards = filteredForwards.filter(f => f.name && f.name.toLowerCase().includes(lowerName));
+
+      filteredForwards = filteredForwards.filter(
+        (f) => f.name && f.name.toLowerCase().includes(lowerName),
+      );
     }
     if (searchParams.inPort.trim()) {
       const targetPort = parseInt(searchParams.inPort.trim());
+
       if (!isNaN(targetPort)) {
-        filteredForwards = filteredForwards.filter(f => f.inPort === targetPort);
+        filteredForwards = filteredForwards.filter(
+          (f) => f.inPort === targetPort,
+        );
       }
     }
     if (searchParams.remoteAddr.trim()) {
       const lowerAddr = searchParams.remoteAddr.toLowerCase();
-      filteredForwards = filteredForwards.filter(f => f.remoteAddr && f.remoteAddr.toLowerCase().includes(lowerAddr));
+
+      filteredForwards = filteredForwards.filter(
+        (f) => f.remoteAddr && f.remoteAddr.toLowerCase().includes(lowerAddr),
+      );
     }
 
     // 确保过滤后的规则列表有效
@@ -3147,7 +3215,7 @@ export default function ForwardPage() {
 
       if (
         normalizeTunnelTrafficRatio(existingTunnelGroup.tunnelTrafficRatio) ===
-        1 &&
+          1 &&
         normalizeTunnelTrafficRatio(forward.tunnelTrafficRatio) !== 1
       ) {
         existingTunnelGroup.tunnelTrafficRatio = normalizeTunnelTrafficRatio(
@@ -3237,30 +3305,37 @@ export default function ForwardPage() {
     [sortedForwards],
   );
 
-
   const selectAll = () => {
     const allIds = sortedForwards.map((f) => f.id);
+
     setSelectedIds(new Set(allIds));
   };
 
   const isAllSelected = useMemo(() => {
-    return sortedForwards && sortedForwards.length > 0 && selectedIds.size === sortedForwards.length;
+    return (
+      sortedForwards &&
+      sortedForwards.length > 0 &&
+      selectedIds.size === sortedForwards.length
+    );
   }, [sortedForwards, selectedIds]);
 
   const isIndeterminate = useMemo(() => {
-    return selectedIds.size > 0 && sortedForwards && selectedIds.size < sortedForwards.length;
+    return (
+      selectedIds.size > 0 &&
+      sortedForwards &&
+      selectedIds.size < sortedForwards.length
+    );
   }, [sortedForwards, selectedIds]);
 
   const handleSelectAllToggle = (isSelected: boolean) => {
     if (isSelected) {
       const allIds = sortedForwards.map((f) => f.id);
+
       setSelectedIds(new Set(allIds));
     } else {
       setSelectedIds(new Set());
     }
   };
-
-
 
   const toggleTunnelGroupCollapsed = (userId: number, tunnelKey: string) => {
     const collapseKey = buildTunnelGroupCollapseKey(userId, tunnelKey);
@@ -3537,7 +3612,6 @@ export default function ForwardPage() {
                 >
                   隧道
                 </Button>
-
               </>
             ) : (
               <>
@@ -3599,8 +3673,6 @@ export default function ForwardPage() {
                 >
                   导出
                 </Button>
-
-
 
                 <Button
                   color="primary"
@@ -3687,7 +3759,8 @@ export default function ForwardPage() {
                         items={sortedForwards}
                       >
                         {(forward) => (
-                          <SortableCompactTableRow copyToClipboard={copyToClipboard}
+                          <SortableCompactTableRow
+                            copyToClipboard={copyToClipboard}
                             formatFlow={formatFlow}
                             formatInAddress={formatInAddress}
                             formatRemoteAddress={formatRemoteAddress}
@@ -3736,7 +3809,7 @@ export default function ForwardPage() {
               collisionDetection={pointerWithin}
               sensors={sensors}
               onDragEnd={handleDragEnd}
-              onDragStart={() => { }}
+              onDragStart={() => {}}
             >
               <SortableContext
                 items={sortableForwardIds}
@@ -3745,7 +3818,11 @@ export default function ForwardPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
                   {sortedForwards.map((forward) =>
                     forward && forward.id ? (
-                      <SortableForwardCard renderCard={renderForwardCard} key={forward.id} forward={forward} />
+                      <SortableForwardCard
+                        key={forward.id}
+                        forward={forward}
+                        renderCard={renderForwardCard}
+                      />
                     ) : null,
                   )}
                 </div>
@@ -3817,10 +3894,10 @@ export default function ForwardPage() {
                             .filter((id) => id > 0);
                           const collapsed =
                             sanitizedCollapsedTunnelGroups[
-                            buildTunnelGroupCollapseKey(
-                              group.userId,
-                              tunnel.tunnelKey,
-                            )
+                              buildTunnelGroupCollapseKey(
+                                group.userId,
+                                tunnel.tunnelKey,
+                              )
                             ] === true;
 
                           return (
@@ -3975,10 +4052,10 @@ export default function ForwardPage() {
                           .filter((id) => id > 0);
                         const collapsed =
                           sanitizedCollapsedTunnelGroups[
-                          buildTunnelGroupCollapseKey(
-                            group.userId,
-                            tunnel.tunnelKey,
-                          )
+                            buildTunnelGroupCollapseKey(
+                              group.userId,
+                              tunnel.tunnelKey,
+                            )
                           ] === true;
 
                         return (
@@ -4003,7 +4080,7 @@ export default function ForwardPage() {
                               collisionDetection={pointerWithin}
                               sensors={sensors}
                               onDragEnd={handleDragEnd}
-                              onDragStart={() => { }}
+                              onDragStart={() => {}}
                             >
                               <SortableContext
                                 items={tunnelSortableForwardIds}
@@ -4043,8 +4120,10 @@ export default function ForwardPage() {
 
       {/* 新增/编辑模态框 */}
       <Modal
-        classNames={{ base: "!w-[calc(100%-32px)] !mx-auto sm:!w-full rounded-2xl overflow-hidden" }}
         backdrop="blur"
+        classNames={{
+          base: "!w-[calc(100%-32px)] !mx-auto sm:!w-full rounded-2xl overflow-hidden",
+        }}
         isOpen={modalOpen}
         placement="center"
         scrollBehavior="outside"
@@ -4256,8 +4335,10 @@ export default function ForwardPage() {
 
       {/* 删除确认模态框 */}
       <Modal
-        classNames={{ base: "!w-[calc(100%-32px)] !mx-auto sm:!w-full rounded-2xl overflow-hidden" }}
         backdrop="blur"
+        classNames={{
+          base: "!w-[calc(100%-32px)] !mx-auto sm:!w-full rounded-2xl overflow-hidden",
+        }}
         isOpen={deleteModalOpen}
         placement="center"
         scrollBehavior="outside"
@@ -4301,7 +4382,9 @@ export default function ForwardPage() {
 
       {/* 地址列表弹窗 */}
       <Modal
-        classNames={{ base: "!w-[calc(100%-32px)] !mx-auto sm:!w-full rounded-2xl overflow-hidden" }}
+        classNames={{
+          base: "!w-[calc(100%-32px)] !mx-auto sm:!w-full rounded-2xl overflow-hidden",
+        }}
         isOpen={addressModalOpen}
         scrollBehavior="outside"
         size="lg"
@@ -4342,8 +4425,10 @@ export default function ForwardPage() {
 
       {/* 导出数据模态框 */}
       <Modal
-        classNames={{ base: "!w-[calc(100%-32px)] !mx-auto sm:!w-full rounded-2xl overflow-hidden" }}
         backdrop="blur"
+        classNames={{
+          base: "!w-[calc(100%-32px)] !mx-auto sm:!w-full rounded-2xl overflow-hidden",
+        }}
         isOpen={exportModalOpen}
         placement="center"
         scrollBehavior="outside"
@@ -4499,8 +4584,10 @@ export default function ForwardPage() {
 
       {/* 导入数据模态框 */}
       <Modal
-        classNames={{ base: "!w-[calc(100%-32px)] !mx-auto sm:!w-full rounded-2xl overflow-hidden" }}
         backdrop="blur"
+        classNames={{
+          base: "!w-[calc(100%-32px)] !mx-auto sm:!w-full rounded-2xl overflow-hidden",
+        }}
         isOpen={importModalOpen}
         placement="center"
         scrollBehavior="outside"
@@ -4712,7 +4799,9 @@ export default function ForwardPage() {
       {/* 诊断结果模态框 */}
       <Modal
         backdrop="blur"
-        classNames={{ base: "!w-[calc(100%-32px)] !mx-auto sm:!w-full rounded-2xl overflow-hidden" }}
+        classNames={{
+          base: "!w-[calc(100%-32px)] !mx-auto sm:!w-full rounded-2xl overflow-hidden",
+        }}
         isOpen={diagnosisModalOpen}
         placement="center"
         scrollBehavior="inside"
@@ -4791,10 +4880,10 @@ export default function ForwardPage() {
                       <div className="text-center p-3 bg-success-50 dark:bg-success-900/20 rounded-lg border border-success-200 dark:border-success-700">
                         <div className="text-2xl font-bold text-success-600 dark:text-success-400">
                           {diagnosisProgress.completed > 0 ||
-                            diagnosisProgress.total > 0
+                          diagnosisProgress.total > 0
                             ? diagnosisProgress.success
                             : diagnosisResult.results.filter((r) => r.success)
-                              .length}
+                                .length}
                         </div>
                         <div className="text-xs text-success-600 dark:text-success-400/80 mt-1">
                           成功
@@ -4803,10 +4892,10 @@ export default function ForwardPage() {
                       <div className="text-center p-3 bg-danger-50 dark:bg-danger-900/20 rounded-lg border border-danger-200 dark:border-danger-700">
                         <div className="text-2xl font-bold text-danger-600 dark:text-danger-400">
                           {diagnosisProgress.completed > 0 ||
-                            diagnosisProgress.total > 0
+                          diagnosisProgress.total > 0
                             ? diagnosisProgress.failed
                             : diagnosisResult.results.filter((r) => !r.success)
-                              .length}
+                                .length}
                         </div>
                         <div className="text-xs text-danger-600 dark:text-danger-400/80 mt-1">
                           失败
@@ -5219,26 +5308,26 @@ export default function ForwardPage() {
                     {diagnosisResult.results.some(
                       (r) => r.success === false && !r.diagnosing,
                     ) && (
-                        <div className="space-y-2 hidden md:block">
-                          <h4 className="text-sm font-semibold text-danger">
-                            失败详情
-                          </h4>
-                          <div className="space-y-2">
-                            {diagnosisResult.results
-                              .filter((r) => r.success === false && !r.diagnosing)
-                              .map((result, index) => (
-                                <Alert
-                                  key={index}
-                                  className="text-xs"
-                                  color="danger"
-                                  description={result.message || "连接失败"}
-                                  title={result.description}
-                                  variant="flat"
-                                />
-                              ))}
-                          </div>
+                      <div className="space-y-2 hidden md:block">
+                        <h4 className="text-sm font-semibold text-danger">
+                          失败详情
+                        </h4>
+                        <div className="space-y-2">
+                          {diagnosisResult.results
+                            .filter((r) => r.success === false && !r.diagnosing)
+                            .map((result, index) => (
+                              <Alert
+                                key={index}
+                                className="text-xs"
+                                color="danger"
+                                description={result.message || "连接失败"}
+                                title={result.description}
+                                variant="flat"
+                              />
+                            ))}
                         </div>
-                      )}
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="text-center py-16">
@@ -5285,7 +5374,9 @@ export default function ForwardPage() {
 
       {/* 批量删除确认模态框 */}
       <Modal
-        classNames={{ base: "!w-[calc(100%-32px)] !mx-auto sm:!w-full rounded-2xl overflow-hidden" }}
+        classNames={{
+          base: "!w-[calc(100%-32px)] !mx-auto sm:!w-full rounded-2xl overflow-hidden",
+        }}
         isOpen={batchDeleteModalOpen}
         onOpenChange={setBatchDeleteModalOpen}
       >
@@ -5317,7 +5408,9 @@ export default function ForwardPage() {
 
       {/* 批量换隧道模态框 */}
       <Modal
-        classNames={{ base: "!w-[calc(100%-32px)] !mx-auto sm:!w-full rounded-2xl overflow-hidden" }}
+        classNames={{
+          base: "!w-[calc(100%-32px)] !mx-auto sm:!w-full rounded-2xl overflow-hidden",
+        }}
         isOpen={batchChangeTunnelModalOpen}
         onOpenChange={setBatchChangeTunnelModalOpen}
       >
@@ -5366,17 +5459,18 @@ export default function ForwardPage() {
         </ModalContent>
       </Modal>
 
-
       {/* 搜索与筛选五合一模态框 */}
       <Modal
-        classNames={{ base: "!w-[calc(100%-32px)] !mx-auto sm:!w-full rounded-2xl overflow-hidden" }}
+        classNames={{
+          base: "!w-[calc(100%-32px)] !mx-auto sm:!w-full rounded-2xl overflow-hidden",
+        }}
         isOpen={isSearchModalOpen}
         placement="center"
         size="md"
         onOpenChange={setIsSearchModalOpen}
       >
         <ModalContent>
-          {(onClose) => (
+          {() => (
             <>
               <ModalHeader className="flex flex-col gap-1">
                 搜索筛选用户规则
@@ -5387,8 +5481,13 @@ export default function ForwardPage() {
                     label="规则名称 (模糊)"
                     placeholder="请输入规则名称关键字"
                     value={searchParams.name}
-                    onChange={(e) => setSearchParams(prev => ({ ...prev, name: e.target.value }))}
                     variant="bordered"
+                    onChange={(e) =>
+                      setSearchParams((prev) => ({
+                        ...prev,
+                        name: e.target.value,
+                      }))
+                    }
                   />
 
                   {isAdmin && (
@@ -5399,7 +5498,11 @@ export default function ForwardPage() {
                       variant="bordered"
                       onSelectionChange={(keys) => {
                         const key = Array.from(keys)[0] as string;
-                        setSearchParams(prev => ({ ...prev, userId: key || "all" }));
+
+                        setSearchParams((prev) => ({
+                          ...prev,
+                          userId: key || "all",
+                        }));
                       }}
                     >
                       <SelectItem key="all">全部用户</SelectItem>
@@ -5418,7 +5521,11 @@ export default function ForwardPage() {
                     variant="bordered"
                     onSelectionChange={(keys) => {
                       const key = Array.from(keys)[0] as string;
-                      setSearchParams(prev => ({ ...prev, tunnelId: key || "all" }));
+
+                      setSearchParams((prev) => ({
+                        ...prev,
+                        tunnelId: key || "all",
+                      }));
                     }}
                   >
                     <SelectItem key="all">全部隧道</SelectItem>
@@ -5434,16 +5541,26 @@ export default function ForwardPage() {
                     placeholder="请输入具体端口号"
                     type="number"
                     value={searchParams.inPort}
-                    onChange={(e) => setSearchParams(prev => ({ ...prev, inPort: e.target.value }))}
                     variant="bordered"
+                    onChange={(e) =>
+                      setSearchParams((prev) => ({
+                        ...prev,
+                        inPort: e.target.value,
+                      }))
+                    }
                   />
 
                   <Input
                     label="目标地址或端口 (模糊)"
                     placeholder="请输入目标IP、域名或端口"
                     value={searchParams.remoteAddr}
-                    onChange={(e) => setSearchParams(prev => ({ ...prev, remoteAddr: e.target.value }))}
                     variant="bordered"
+                    onChange={(e) =>
+                      setSearchParams((prev) => ({
+                        ...prev,
+                        remoteAddr: e.target.value,
+                      }))
+                    }
                   />
                 </div>
               </ModalBody>
@@ -5457,7 +5574,7 @@ export default function ForwardPage() {
                       userId: tokenUserId ? tokenUserId.toString() : "all",
                       tunnelId: "all",
                       inPort: "",
-                      remoteAddr: ""
+                      remoteAddr: "",
                     });
                   }}
                 >
@@ -5469,6 +5586,21 @@ export default function ForwardPage() {
         </ModalContent>
       </Modal>
 
+      <BatchActionResultModal
+        failures={batchResultModal.failures}
+        isOpen={batchResultModal.open}
+        summary={batchResultModal.summary}
+        title={batchResultModal.title}
+        onOpenChange={(open) => {
+          if (open) {
+            setBatchResultModal((prev) => ({ ...prev, open: true }));
+
+            return;
+          }
+
+          setBatchResultModal(EMPTY_BATCH_RESULT_MODAL_STATE);
+        }}
+      />
     </AnimatedPage>
   );
 }

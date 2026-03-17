@@ -97,7 +97,7 @@ export function VersionFooter({
           rel="noopener noreferrer"
           target="_blank"
         >
-          Flvx
+          FLVX
         </a>
       </p>
     </div>

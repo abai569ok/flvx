@@ -88,7 +88,7 @@ const CONFIG_ITEMS: ConfigItem[] = [
     label: "面板后端地址",
     placeholder: "请输入面板后端IP:PORT",
     description:
-      "格式“ip:port”,用于对接节点时使用,ip是你安装面板服务器的公网ip,端口是安装脚本内输入的后端端口。不要套CDN,不支持https,通讯数据有加密",
+      '格式"ip:port"或"domain:port",用于对接节点时使用。支持套CDN和HTTPS,通讯数据有加密',
     type: "input",
   },
   {
@@ -324,6 +324,14 @@ export default function ConfigPage() {
     } finally {
       setAnnouncementSaving(false);
     }
+  };
+
+  const handleUpdateChannelChange = (channel: UpdateReleaseChannel) => {
+    setUpdateChannel(channel);
+    setUpdateReleaseChannel(channel);
+    toast.success(
+      `更新通道已切换为${channel === "stable" ? "稳定版" : "开发版"}`,
+    );
   };
 
   const handleConfigChange = (key: string, value: string) => {
@@ -917,6 +925,40 @@ export default function ConfigPage() {
 
           <Divider className="my-2" />
 
+          <div className="space-y-3">
+            <div className="flex flex-col gap-1">
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                更新通道
+              </p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                稳定版仅匹配纯数字版本；开发版仅匹配包含 alpha / beta / rc
+                的版本。
+              </p>
+            </div>
+
+            <Select
+              selectedKeys={[updateChannel]}
+              size="md"
+              variant="bordered"
+              onSelectionChange={(keys) => {
+                const selected =
+                  (Array.from(keys)[0] as UpdateReleaseChannel) || "stable";
+
+                handleUpdateChannelChange(selected);
+              }}
+            >
+              <SelectItem key="stable" description="仅纯数字版本，如 2.1.4">
+                稳定版
+              </SelectItem>
+              <SelectItem
+                key="dev"
+                description="仅 alpha / beta / rc 关键字版本"
+              >
+                开发版
+              </SelectItem>
+            </Select>
+          </div>
+
           <div className="flex justify-end pt-6 border-t border-divider/50 mt-4">
             <Button
               color="primary"
@@ -1087,7 +1129,14 @@ export default function ConfigPage() {
         </CardBody>
       </Card>
 
-      <Modal backdrop="blur" classNames={{ base: "!w-[calc(100%-32px)] !mx-auto sm:!w-full rounded-2xl overflow-hidden" }} isOpen={exportSelectorOpen} onOpenChange={setExportSelectorOpen}>
+      <Modal
+        backdrop="blur"
+        classNames={{
+          base: "!w-[calc(100%-32px)] !mx-auto sm:!w-full rounded-2xl overflow-hidden",
+        }}
+        isOpen={exportSelectorOpen}
+        onOpenChange={setExportSelectorOpen}
+      >
         <ModalContent>
           {(onClose) => (
             <>
@@ -1112,7 +1161,14 @@ export default function ConfigPage() {
         </ModalContent>
       </Modal>
 
-      <Modal backdrop="blur" classNames={{ base: "!w-[calc(100%-32px)] !mx-auto sm:!w-full rounded-2xl overflow-hidden" }} isOpen={importSelectorOpen} onOpenChange={setImportSelectorOpen}>
+      <Modal
+        backdrop="blur"
+        classNames={{
+          base: "!w-[calc(100%-32px)] !mx-auto sm:!w-full rounded-2xl overflow-hidden",
+        }}
+        isOpen={importSelectorOpen}
+        onOpenChange={setImportSelectorOpen}
+      >
         <ModalContent>
           {(onClose) => (
             <>

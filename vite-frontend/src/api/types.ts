@@ -6,6 +6,7 @@ export interface NodeApiItem {
   remark?: string;
   expiryTime?: number;
   renewalCycle?: "month" | "quarter" | "year" | "";
+  expiryReminderDismissed?: number;
   syncError?: string;
   [key: string]: unknown;
 }
@@ -210,6 +211,14 @@ export interface UserPackageInfoApiData {
 export interface BatchOperationResult {
   successCount: number;
   failCount: number;
+  failures?: BatchOperationFailure[];
+  [key: string]: unknown;
+}
+
+export interface BatchOperationFailure {
+  id?: number;
+  name?: string;
+  reason?: string;
   [key: string]: unknown;
 }
 

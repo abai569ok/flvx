@@ -1,3 +1,5 @@
+import type { BatchOperationFailure } from "@/api/types";
+
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import toast from "react-hot-toast";
 import {
@@ -20,6 +22,7 @@ import { CSS } from "@dnd-kit/utilities";
 
 import { SearchBar } from "@/components/search-bar";
 import { AnimatedPage } from "@/components/animated-page";
+import { BatchActionResultModal } from "@/components/batch-action-result-modal";
 import { Card, CardBody, CardHeader } from "@/shadcn-bridge/heroui/card";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Input, Textarea } from "@/shadcn-bridge/heroui/input";
@@ -63,7 +66,11 @@ import {
 } from "@/pages/tunnel/form";
 import { useLocalStorageState } from "@/hooks/use-local-storage-state";
 import { loadStoredOrder, saveOrder } from "@/utils/order-storage";
-import { extractApiErrorMessage } from "@/api/error-message";
+import {
+  buildBatchFailureMessage,
+  extractBatchFailures,
+  extractApiErrorMessage,
+} from "@/api/error-message";
 
 interface ChainTunnel {
   nodeId: number;
@@ -121,6 +128,20 @@ interface BatchProgressState {
   label: string;
   percent: number;
 }
+
+interface BatchResultModalState {
+  failures: BatchOperationFailure[];
+  open: boolean;
+  summary: string;
+  title: string;
+}
+
+const EMPTY_BATCH_RESULT_MODAL_STATE: BatchResultModalState = {
+  failures: [],
+  open: false,
+  summary: "",
+  title: "",
+};
 
 const TUNNEL_ORDER_KEY = "tunnel-order";
 
@@ -232,6 +253,8 @@ export default function TunnelPage() {
     label: "",
     percent: 0,
   });
+  const [batchResultModal, setBatchResultModal] =
+    useState<BatchResultModalState>(EMPTY_BATCH_RESULT_MODAL_STATE);
 
   useEffect(() => {
     return () => {
@@ -358,7 +381,7 @@ export default function TunnelPage() {
     });
     setErrors({});
     setModalOpen(true);
-  }; 
+  };
 
   // 删除隧道
   const handleDelete = (tunnel: Tunnel) => {
@@ -842,6 +865,18 @@ export default function TunnelPage() {
     setSelectedIds(new Set());
   };
 
+  const openBatchResultModal = useCallback(
+    (title: string, summary: string, failures: BatchOperationFailure[]) => {
+      setBatchResultModal({
+        failures,
+        open: true,
+        summary,
+        title,
+      });
+    },
+    [],
+  );
+
   const handleBatchDelete = async () => {
     if (selectedIds.size === 0) return;
     setBatchLoading(true);
@@ -874,9 +909,19 @@ export default function TunnelPage() {
             return next;
           });
         } else {
-          toast.error(
-            `成功 ${result.successCount} 项，失败 ${result.failCount} 项`,
-          );
+          const failures = extractBatchFailures(result);
+
+          if (failures.length > 0) {
+            openBatchResultModal(
+              "批量删除结果",
+              `成功 ${result.successCount} 项，失败 ${result.failCount} 项`,
+              failures,
+            );
+          } else {
+            toast.error(
+              `成功 ${result.successCount} 项，失败 ${result.failCount} 项`,
+            );
+          }
           setBatchProgress({
             active: true,
             label: `部分完成：成功 ${result.successCount} 项，正在刷新列表...`,
@@ -915,9 +960,22 @@ export default function TunnelPage() {
         if (result.failCount === 0) {
           toast.success(`成功重新下发 ${result.successCount} 项`);
         } else {
-          toast.error(
-            `成功 ${result.successCount} 项，失败 ${result.failCount} 项`,
-          );
+          const failures = extractBatchFailures(result);
+
+          if (failures.length > 0) {
+            openBatchResultModal(
+              "批量下发结果",
+              `成功 ${result.successCount} 项，失败 ${result.failCount} 项`,
+              failures,
+            );
+          } else {
+            toast.error(
+              buildBatchFailureMessage(
+                result,
+                `成功 ${result.successCount} 项，失败 ${result.failCount} 项`,
+              ),
+            );
+          }
         }
         setSelectedIds(new Set());
         setSelectMode(false);
@@ -1211,7 +1269,21 @@ export default function TunnelPage() {
                                 </Chip>
                               </div>
                             </div>
-                            <div className="cursor-grab active:cursor-grabbing p-1 -mr-1 text-default-400 hover:text-default-600 transition-colors touch-manipulation flex-shrink-0" {...listeners} style={{ touchAction: "none" }} title="拖拽排序"><svg aria-hidden="true" className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M7 2a2 2 0 1 1 .001 4.001A2 2 0 0 1 7 2zm0 6a2 2 0 1 1 .001 4.001A2 2 0 0 1 7 8zm0 6a2 2 0 1 1 .001 4.001A2 2 0 0 1 7 14zm6-8a2 2 0 1 1-.001-4.001A2 2 0 0 1 13 6zm0 2a2 2 0 1 1 .001 4.001A2 2 0 0 1 13 8zm0 6a2 2 0 1 1 .001 4.001A2 2 0 0 1 13 14z" /></svg></div>
+                            <div
+                              className="cursor-grab active:cursor-grabbing p-1 -mr-1 text-default-400 hover:text-default-600 transition-colors touch-manipulation flex-shrink-0"
+                              {...listeners}
+                              style={{ touchAction: "none" }}
+                              title="拖拽排序"
+                            >
+                              <svg
+                                aria-hidden="true"
+                                className="w-4 h-4"
+                                fill="currentColor"
+                                viewBox="0 0 20 20"
+                              >
+                                <path d="M7 2a2 2 0 1 1 .001 4.001A2 2 0 0 1 7 2zm0 6a2 2 0 1 1 .001 4.001A2 2 0 0 1 7 8zm0 6a2 2 0 1 1 .001 4.001A2 2 0 0 1 7 14zm6-8a2 2 0 1 1-.001-4.001A2 2 0 0 1 13 6zm0 2a2 2 0 1 1 .001 4.001A2 2 0 0 1 13 8zm0 6a2 2 0 1 1 .001 4.001A2 2 0 0 1 13 14z" />
+                              </svg>
+                            </div>
                           </div>
                         </CardHeader>
 
@@ -1350,7 +1422,6 @@ export default function TunnelPage() {
                                 </div>
                               )}
                             </div>
-
                           </div>
 
                           <div className="flex gap-1.5 mt-3">
@@ -1449,8 +1520,11 @@ export default function TunnelPage() {
       )}
 
       {/* 新增/编辑模态框 */}
-      <Modal classNames={{ base: "!w-[calc(100%-32px)] !mx-auto sm:!w-full rounded-2xl overflow-hidden" }}
+      <Modal
         backdrop="blur"
+        classNames={{
+          base: "!w-[calc(100%-32px)] !mx-auto sm:!w-full rounded-2xl overflow-hidden",
+        }}
         isOpen={modalOpen}
         placement="center"
         scrollBehavior="outside"
@@ -2383,8 +2457,11 @@ export default function TunnelPage() {
       </Modal>
 
       {/* 删除确认模态框 */}
-      <Modal classNames={{ base: "!w-[calc(100%-32px)] !mx-auto sm:!w-full rounded-2xl overflow-hidden" }}
+      <Modal
         backdrop="blur"
+        classNames={{
+          base: "!w-[calc(100%-32px)] !mx-auto sm:!w-full rounded-2xl overflow-hidden",
+        }}
         isOpen={deleteModalOpen}
         placement="center"
         scrollBehavior="outside"
@@ -2426,7 +2503,9 @@ export default function TunnelPage() {
       {/* 诊断结果模态框 */}
       <Modal
         backdrop="blur"
-        classNames={{ base: "!w-[calc(100%-32px)] !mx-auto sm:!w-full rounded-2xl overflow-hidden" }}
+        classNames={{
+          base: "!w-[calc(100%-32px)] !mx-auto sm:!w-full rounded-2xl overflow-hidden",
+        }}
         isOpen={diagnosisModalOpen}
         placement="center"
         scrollBehavior="inside"
@@ -3007,7 +3086,11 @@ export default function TunnelPage() {
         </ModalContent>
       </Modal>
 
-      <Modal backdrop="blur" classNames={{ base: "!w-[calc(100%-32px)] !mx-auto sm:!w-full rounded-2xl overflow-hidden" }}
+      <Modal
+        backdrop="blur"
+        classNames={{
+          base: "!w-[calc(100%-32px)] !mx-auto sm:!w-full rounded-2xl overflow-hidden",
+        }}
         isOpen={batchDeleteModalOpen}
         onOpenChange={setBatchDeleteModalOpen}
       >
@@ -3037,6 +3120,21 @@ export default function TunnelPage() {
           )}
         </ModalContent>
       </Modal>
+
+      <BatchActionResultModal
+        failures={batchResultModal.failures}
+        isOpen={batchResultModal.open}
+        summary={batchResultModal.summary}
+        title={batchResultModal.title}
+        onOpenChange={(open) => {
+          if (open) {
+            setBatchResultModal((prev) => ({ ...prev, open: true }));
+
+            return;
+          }
+          setBatchResultModal(EMPTY_BATCH_RESULT_MODAL_STATE);
+        }}
+      />
     </AnimatedPage>
   );
 }
