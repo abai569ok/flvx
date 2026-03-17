@@ -87,7 +87,7 @@ export function VersionFooter({
   return (
     <div className={containerClassName}>
       <p className={versionClassName}>
-        {version}
+        abai2.1.8-beta1
       </p>
       <p className={poweredClassName}>
         Powered by{" "}

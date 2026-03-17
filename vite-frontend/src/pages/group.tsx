@@ -489,7 +489,8 @@ export default function GroupPage() {
           </Button>
         </CardHeader>
         <CardBody>
-          <Table aria-label="隧道分组列表">
+          <div className="overflow-x-auto w-full touch-pan-x pb-2">
+<Table aria-label="隧道分组列表" className="min-w-[800px]">
             <TableHeader>
               <TableColumn>名称</TableColumn>
               <TableColumn>隧道</TableColumn>
@@ -500,11 +501,18 @@ export default function GroupPage() {
             <TableBody emptyContent="暂无隧道分组" items={tunnelGroups}>
               {(item) => (
                 <TableRow key={item.id}>
-                  <TableCell>{item.name}</TableCell>
+                  <TableCell><span className="whitespace-nowrap">{item.name}</span></TableCell>
                   <TableCell>
-                    {item.tunnelNames.length > 0
-                      ? item.tunnelNames.join("、")
-                      : "-"}
+                    {item.tunnelNames.length > 0 ? (
+                      <div className="flex flex-wrap gap-1 items-center" title={item.tunnelNames.join("、")}>
+                        {item.tunnelNames.slice(0, 2).map((name: string, idx: number) => (
+                          <Chip key={idx} size="sm" variant="flat" className="max-w-[120px] truncate">{name}</Chip>
+                        ))}
+                        {item.tunnelNames.length > 2 && (
+                          <Chip size="sm" variant="flat" color="primary" className="cursor-help">+{item.tunnelNames.length - 2}</Chip>
+                        )}
+                      </div>
+                    ) : "-"}
                   </TableCell>
                   <TableCell>
                     <Chip
@@ -545,6 +553,7 @@ export default function GroupPage() {
               )}
             </TableBody>
           </Table>
+</div>
         </CardBody>
       </Card>
 
@@ -561,7 +570,8 @@ export default function GroupPage() {
           </Button>
         </CardHeader>
         <CardBody>
-          <Table aria-label="用户分组列表">
+          <div className="overflow-x-auto w-full touch-pan-x pb-2">
+<Table aria-label="用户分组列表" className="min-w-[800px]">
             <TableHeader>
               <TableColumn>名称</TableColumn>
               <TableColumn>用户</TableColumn>
@@ -572,11 +582,18 @@ export default function GroupPage() {
             <TableBody emptyContent="暂无用户分组" items={userGroups}>
               {(item) => (
                 <TableRow key={item.id}>
-                  <TableCell>{item.name}</TableCell>
+                  <TableCell><span className="whitespace-nowrap">{item.name}</span></TableCell>
                   <TableCell>
-                    {item.userNames.length > 0
-                      ? item.userNames.join("、")
-                      : "-"}
+                    {item.userNames.length > 0 ? (
+                      <div className="flex flex-wrap gap-1 items-center" title={item.userNames.join("、")}>
+                        {item.userNames.slice(0, 2).map((name: string, idx: number) => (
+                          <Chip key={idx} size="sm" variant="flat" className="max-w-[120px] truncate">{name}</Chip>
+                        ))}
+                        {item.userNames.length > 2 && (
+                          <Chip size="sm" variant="flat" color="primary" className="cursor-help">+{item.userNames.length - 2}</Chip>
+                        )}
+                      </div>
+                    ) : "-"}
                   </TableCell>
                   <TableCell>
                     <Chip
@@ -617,6 +634,7 @@ export default function GroupPage() {
               )}
             </TableBody>
           </Table>
+</div>
         </CardBody>
       </Card>
 
@@ -625,9 +643,9 @@ export default function GroupPage() {
           <h3 className="text-lg font-semibold">权限分配</h3>
         </CardHeader>
         <CardBody className="space-y-4">
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-3 md:items-end">
+          <div className="flex flex-row items-end gap-2 w-full">
             <Select
-              items={userGroups}
+              className="flex-1 min-w-0" size="sm" items={userGroups}
               label="用户分组"
               selectedKeys={
                 selectedUserGroupId ? [String(selectedUserGroupId)] : []
@@ -641,7 +659,7 @@ export default function GroupPage() {
               {(item) => <SelectItem key={item.id}>{item.name}</SelectItem>}
             </Select>
             <Select
-              items={tunnelGroups}
+              className="flex-1 min-w-0" size="sm" items={tunnelGroups}
               label="隧道分组"
               selectedKeys={
                 selectedTunnelGroupId ? [String(selectedTunnelGroupId)] : []
@@ -655,7 +673,7 @@ export default function GroupPage() {
               {(item) => <SelectItem key={item.id}>{item.name}</SelectItem>}
             </Select>
             <Button
-              className="md:self-end md:justify-self-start whitespace-nowrap px-4"
+              className="flex-none whitespace-nowrap px-4 min-w-0"
               color="primary"
               isLoading={savingPermission}
               size="sm"
@@ -665,7 +683,8 @@ export default function GroupPage() {
             </Button>
           </div>
 
-          <Table aria-label="分组权限列表">
+          <div className="overflow-x-auto w-full touch-pan-x pb-2">
+<Table aria-label="分组权限列表" className="min-w-[800px]">
             <TableHeader>
               <TableColumn>ID</TableColumn>
               <TableColumn>用户分组</TableColumn>
@@ -698,6 +717,7 @@ export default function GroupPage() {
               )}
             </TableBody>
           </Table>
+</div>
         </CardBody>
       </Card>
 

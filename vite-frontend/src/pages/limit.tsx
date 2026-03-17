@@ -227,11 +227,18 @@ export default function LimitPage() {
             value={searchKeyword}
             onChange={setSearchKeyword}
             onClose={() => setIsSearchVisible(false)}
-            onOpen={() => setIsSearchVisible(true)}
+            onOpen={() => {
+              setIsSearchVisible(true);
+              setTimeout(() => {
+                // 精准抓取带有“搜索”字样的输入框并强制聚焦
+                const searchInput = document.querySelector('input[placeholder*="搜索"]');
+                if (searchInput) (searchInput as HTMLElement).focus();
+              }, 150); // 150ms 刚好是 CSS 展开动画的时间
+            }}
           />
         </div>
 
-        <Button color="primary" size="sm" variant="flat" onPress={handleAdd}>
+        <Button className="self-end sm:self-auto" color="primary" size="sm" variant="flat" onPress={handleAdd}>
           新增
         </Button>
       </div>

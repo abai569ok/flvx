@@ -1352,26 +1352,35 @@ export default function NodePage() {
   const sortedNodes = useMemo((): Node[] => {
     if (!nodeList || nodeList.length === 0) return [];
 
-    // 优先使用数据库中的 inx 字段进行排序
-    const hasDbOrdering = nodeList.some(
-      (n) => n.inx !== undefined && n.inx !== 0,
-    );
+    const sortedByDb = [...nodeList].sort((a, b) => {
+      const expiryDiff =
+        getNodeExpiryMeta(a.expiryTime, a.renewalCycle).sortWeight -
+        getNodeExpiryMeta(b.expiryTime, b.renewalCycle).sortWeight;
 
-    if (hasDbOrdering) {
-      return [...nodeList].sort((a, b) => (a.inx ?? 0) - (b.inx ?? 0));
-    }
+      if (expiryDiff !== 0) {
+        return expiryDiff;
+      }
+      const aInx = a.inx ?? 0;
+      const bInx = b.inx ?? 0;
 
-    // 如果没有数据库排序信息，使用本地存储的顺序
-    if (nodeOrder && nodeOrder.length > 0) {
+      return aInx - bInx;
+    });
+
+    // 如果数据库中没有排序信息，则使用本地存储的顺序
+    if (
+      nodeOrder &&
+      nodeOrder.length > 0 &&
+      sortedByDb.every((n) => n.inx === undefined || n.inx === 0)
+    ) {
       const nodeMap = new Map(nodeList.map((n) => [n.id, n] as const));
       const localSorted: Node[] = [];
 
       nodeOrder.forEach((id) => {
         const node = nodeMap.get(id);
+
         if (node) localSorted.push(node);
       });
 
-      // 添加不在 nodeOrder 中的新节点
       nodeList.forEach((node) => {
         if (!nodeOrder.includes(node.id)) {
           localSorted.push(node);
@@ -1381,8 +1390,7 @@ export default function NodePage() {
       return localSorted;
     }
 
-    // 都没有排序信息，返回原始顺序
-    return nodeList;
+    return sortedByDb;
   }, [nodeList, nodeOrder]);
 
   const filterNodesByKeyword = useCallback((nodes: Node[], keyword: string) => {
@@ -1473,101 +1481,172 @@ export default function NodePage() {
 
   return (
     <AnimatedPage className="px-3 lg:px-6 py-8">
-      
-      <div className="mb-6 space-y-4">
-        {/* 第一行：功能按钮区 */}
-        {!selectMode && (
-          <div className="flex flex-row items-center justify-between gap-2">
-            <div className="flex-1 flex items-center gap-2">
-              <SearchBar
-                isVisible={isSearchVisible}
-                placeholder={activeTab === "remote" ? "搜索远程节点" : "搜索本地节点"}
-                value={currentSearchKeyword}
-                onChange={setCurrentSearchKeyword}
-                onClose={() => setIsSearchVisible(false)}
-                onOpen={() => {
-                  setIsSearchVisible(true);
-                  setTimeout(() => {
-                    const searchInput = document.querySelector('input[placeholder*="搜索"]');
-                    if (searchInput) (searchInput as HTMLElement).focus();
-                  }, 150);
-                }}
-              />
-            </div>
-            
-            <div className="flex items-center gap-1.5 shrink-0">
-              {/* 1. 筛选 */}
-              <Button
-                isIconOnly
-                className={activeTab === "local" && nodeFilterMode !== "all" ? "bg-primary/20 text-primary h-8 w-8 min-w-0" : "text-default-600 h-8 w-8 min-w-0"}
-                isDisabled={activeTab !== "local"}
-                size="sm"
-                variant="flat"
-                onPress={() => setIsFilterModalOpen(true)}
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} />
-                </svg>
-                {activeTab === "local" && nodeFilterMode !== "all" && (
-                  <span className="absolute top-1 right-1 flex h-1.5 w-1.5 rounded-full bg-primary" />
-                )}
-              </Button>
+      <div className="mb-6 space-y-3">
+        <div className="flex items-center gap-2 overflow-x-auto pb-1">
+          <Button
+            className="shrink-0"
+            color={activeTab === "local" ? "primary" : "default"}
+            size="sm"
+            variant={activeTab === "local" ? "solid" : "flat"}
+            onPress={() => setActiveTab("local")}
+          >
+            本地节点
+            <Chip className="ml-1 shrink-0 whitespace-nowrap" size="sm" variant="flat">
+              {localNodes.length}
+            </Chip>
+          </Button>
+          <Button
+            className="shrink-0"
+            color={activeTab === "remote" ? "primary" : "default"}
+            size="sm"
+            variant={activeTab === "remote" ? "solid" : "flat"}
+            onPress={() => setActiveTab("remote")}
+          >
+            远程节点
+            <Chip className="ml-1 shrink-0 whitespace-nowrap" size="sm" variant="flat">
+              {remoteNodes.length}
+            </Chip>
+          </Button>
+        </div>
 
-              {/* 2. 切换按钮 */}
-              <Button
-                className="h-8 px-3 text-xs min-w-0"
-                color={activeTab === "local" ? "primary" : "warning"} size="sm" variant="flat" onPress={() => setActiveTab(activeTab === "local" ? "remote" : "local")} > {activeTab === "local" ? "远程" : "本地"}
-              </Button>
-
-              {/* 3. 批量 */}
-              <Button
-                className="bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300 h-8 px-3 min-w-0"
-                size="sm"
-                variant="flat"
-                onPress={toggleSelectMode}
-              >
-                批量
-              </Button>
-
-              {/* 4. 新增 */}
-              <Button
-                color="primary"
-                className="h-8 px-3 min-w-0"
-                size="sm"
-                variant="flat"
-                onPress={handleAdd}
-              >
-                新增
-              </Button>
-            </div>
+        <div className="flex flex-row items-center justify-between gap-3 overflow-x-auto pb-1">
+          <div
+            className={`flex-1 max-w-sm flex items-center gap-2 shrink-0 ${
+              isSearchVisible ? "min-w-[200px]" : "min-w-0"
+            }`}
+          >
+            <SearchBar
+              isVisible={isSearchVisible}
+              placeholder={
+                activeTab === "remote"
+                  ? "搜索远程节点名称或IP"
+                  : "搜索本地节点名称或IP"
+              }
+              value={currentSearchKeyword}
+              onChange={setCurrentSearchKeyword}
+              onClose={() => setIsSearchVisible(false)}
+              onOpen={() => {
+              setIsSearchVisible(true);
+              setTimeout(() => {
+                // 精准抓取带有“搜索”字样的输入框并强制聚焦
+                const searchInput = document.querySelector('input[placeholder*="搜索"]');
+                if (searchInput) (searchInput as HTMLElement).focus();
+              }, 150); // 150ms 刚好是 CSS 展开动画的时间
+            }}
+            />
           </div>
-        )}
 
-        {/* 第二行：左右统计区 */}
-        {!selectMode && (
-          <div className="flex items-center justify-between px-1 mb-3">
-            <span className="text-sm font-semibold text-foreground">
-              {activeTab === "local" ? "本地节点" : "远程节点"}
-            </span>
-            <span className="text-xs text-default-600">
-              {activeTab === "local" ? localNodes.length : remoteNodes.length} 条节点
-            </span>
+          <div className="flex h-8 items-center justify-end gap-2 whitespace-nowrap shrink-0">
+            {selectMode ? (
+              <>
+                <span className="text-sm text-default-600 shrink-0">
+                  已选择 {selectedIds.size} 项
+                </span>
+                <Button
+                  color="primary"
+                  size="sm"
+                  variant="flat"
+                  onPress={selectAll}
+                >
+                  全选
+                </Button>
+                <Button
+                  color="secondary"
+                  size="sm"
+                  variant="flat"
+                  onPress={deselectAll}
+                >
+                  清空
+                </Button>
+                <Button
+                  color="warning"
+                  isDisabled={selectedIds.size === 0 || !canBatchUpgrade}
+                  isLoading={batchUpgradeLoading}
+                  size="sm"
+                  variant="flat"
+                  onPress={() => openUpgradeModal("batch")}
+                >
+                  升级
+                </Button>
+                <Button
+                  color="danger"
+                  isDisabled={selectedIds.size === 0}
+                  size="sm"
+                  variant="flat"
+                  onPress={() => setBatchDeleteModalOpen(true)}
+                >
+                  删除
+                </Button>
+                <Button
+                  color="secondary"
+                  size="sm"
+                  variant="solid"
+                  onPress={toggleSelectMode}
+                >
+                  退出
+                </Button>
+              </>
+            ) : (
+              <>
+                {/* 筛选按钮 */}
+                <Button
+                  isIconOnly
+                  aria-label="筛选条件"
+                  isDisabled={!canUseExpiryFilter}
+                  className={
+                    canUseExpiryFilter && nodeFilterMode !== "all"
+                      ? "bg-primary/20 text-primary relative"
+                      : "text-default-600 relative"
+                  }
+                  color={
+                    canUseExpiryFilter && nodeFilterMode !== "all"
+                      ? "primary"
+                      : "default"
+                  }
+                  size="sm"
+                  title={canUseExpiryFilter ? "筛选条件" : "远程节点不支持到期筛选"}
+                  variant="flat"
+                  onPress={() => setIsFilterModalOpen(true)}
+                >
+                  <svg
+                    aria-hidden="true"
+                    className="w-4 h-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                    />
+                  </svg>
+                  {canUseExpiryFilter && nodeFilterMode !== "all" && (
+                    <span className="absolute top-1.5 right-1.5 flex h-1.5 w-1.5 rounded-full bg-primary" />
+                  )}
+                </Button>
+                <Button
+                  className="bg-sky-100 text-sky-700 hover:bg-sky-200 dark:bg-sky-900/30 dark:text-sky-300 dark:hover:bg-sky-900/45"
+                  color="default"
+                  size="sm"
+                  variant="flat"
+                  onPress={toggleSelectMode}
+                >
+                  批量
+                </Button>
+                <Button
+                  color="primary"
+                  size="sm"
+                  variant="flat"
+                  onPress={handleAdd}
+                >
+                  新增
+                </Button>
+              </>
+            )}
           </div>
-        )}
-
-        {/* 批量模式覆盖层 */}
-        {selectMode && (
-          <div className="flex h-10 items-center justify-between gap-2 bg-default-50 dark:bg-default-100/50 p-2 rounded-xl border border-divider">
-            <span className="text-sm font-semibold text-danger-500 ml-2">已选 {selectedIds.size} 项</span>
-            <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
-              <Button color="primary" size="sm" variant="flat" onPress={selectAll}>全选</Button>
-              <Button color="secondary" size="sm" variant="flat" onPress={deselectAll}>清空</Button>
-              <Button color="warning" isDisabled={selectedIds.size === 0 || !canBatchUpgrade} size="sm" variant="flat" onPress={() => openUpgradeModal("batch")}>升级</Button>
-              <Button color="danger" isDisabled={selectedIds.size === 0} size="sm" variant="flat" onPress={() => setBatchDeleteModalOpen(true)}>删除</Button>
-              <Button color="default" size="sm" variant="solid" onPress={toggleSelectMode}>退出</Button>
-            </div>
-          </div>
-        )}
+        </div>
       </div>
 
       {!wsConnected && (

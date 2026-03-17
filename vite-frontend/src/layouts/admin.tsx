@@ -32,6 +32,7 @@ interface MenuItem {
   label: string;
   icon: React.ReactNode;
   adminOnly?: boolean;
+  target?: string;
 }
 
 interface PasswordForm {
@@ -87,6 +88,14 @@ export default function AdminLayout({
             fillRule="evenodd"
           />
         </svg>
+      ),
+    },
+    {
+      path: "/tz",
+      label: "探针",
+      target: "_blank",
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
       ),
     },
     {
@@ -316,7 +325,7 @@ export default function AdminLayout({
         className={`
         ${isMobile ? "fixed" : "relative"} 
         ${isMobile && !mobileMenuVisible ? "-translate-x-full" : "translate-x-0"}
-        ${isMobile ? "w-64" : isCollapsed ? "w-20" : "w-72"} 
+        ${isMobile ? "w-56" : isCollapsed ? "w-20" : "w-60"} 
         bg-white dark:bg-black 
         shadow-lg 
         border-r border-gray-200 dark:border-gray-600
@@ -361,7 +370,13 @@ export default function AdminLayout({
                      `}
                     title={isCollapsed ? item.label : undefined}
                     transition={{ duration: 0.15 }}
-                    onClick={() => handleMenuClick(item.path)}
+                    onClick={() => {
+                    if (item.target === "_blank") {
+                      window.open(item.path, "_blank");
+                    } else {
+                      handleMenuClick(item.path);
+                    }
+                  }}
                   >
                     {isActive && (
                       <motion.div

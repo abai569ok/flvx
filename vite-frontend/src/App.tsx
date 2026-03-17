@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import IndexPage from "@/pages/index";
 import ChangePasswordPage from "@/pages/change-password";
 import DashboardPage from "@/pages/dashboard";
+import TzPage from "@/pages/tz";
 import ForwardPage from "@/pages/forward";
 import TunnelPage from "@/pages/tunnel";
 import NodePage from "@/pages/node";
@@ -16,7 +17,6 @@ import PanelSharingPage from "@/pages/panel-sharing";
 import { SettingsPage } from "@/pages/settings";
 import AdminLayout from "@/layouts/admin";
 import H5Layout from "@/layouts/h5";
-import H5SimpleLayout from "@/layouts/h5-simple";
 import { isLoggedIn } from "@/utils/auth";
 import { siteConfig, updateSiteConfig } from "@/config/site";
 import { useH5Mode } from "@/hooks/useH5Mode";
@@ -57,7 +57,7 @@ const ProtectedRoute = ({
 
   // 根据模式和页面类型选择布局
   const Layout =
-    isH5 && useSimpleLayout ? H5SimpleLayout : isH5 ? H5Layout : AdminLayout;
+    isH5 ? H5Layout : AdminLayout;
 
   return <Layout>{children}</Layout>;
 };
@@ -148,7 +148,7 @@ function App() {
       />
       <Route
         element={
-          <ProtectedRoute useSimpleLayout={true}>
+          <ProtectedRoute>
             <UserPage />
           </ProtectedRoute>
         }
@@ -156,7 +156,7 @@ function App() {
       />
       <Route
         element={
-          <ProtectedRoute useSimpleLayout={true}>
+          <ProtectedRoute>
             <GroupPage />
           </ProtectedRoute>
         }
@@ -172,7 +172,7 @@ function App() {
       />
       <Route
         element={
-          <ProtectedRoute useSimpleLayout={true}>
+          <ProtectedRoute>
             <LimitPage />
           </ProtectedRoute>
         }
@@ -188,13 +188,22 @@ function App() {
       />
       <Route
         element={
-          <ProtectedRoute useSimpleLayout={true}>
+          <ProtectedRoute>
             <PanelSharingPage />
           </ProtectedRoute>
         }
         path="/panel-sharing"
       />
       <Route element={<SettingsPage />} path="/settings" />
+    
+      <Route
+        element={
+          <ProtectedRoute skipLayout={true}>
+            <TzPage />
+          </ProtectedRoute>
+        }
+        path="/tz"
+      />
     </Routes>
   );
 }
